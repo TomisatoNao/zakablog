@@ -53,6 +53,18 @@ $env:BOT1_TARGET_OPENID = "your_target_openid"
 python blog.py
 ```
 
+### 获取 QQ Bot OpenID（首次配置）
+
+如果不知道 `TARGET_OPENID`，可使用内置工具通过 WebSocket 监听获取：
+
+```bash
+# 先确保 .env 中已填入 APP_ID 和 CLIENT_SECRET
+pip install httpx websockets
+python tools/get_qq_openid.py
+```
+
+然后用你的 QQ 私聊机器人发一条消息，终端会打印出你的 openid，填入 `.env` 即可。
+
 ## 平台开关
 
 | 变量 | 默认 | 说明 |
@@ -128,6 +140,8 @@ zakablog/
 │   ├── nogizaka.py         #   乃木坂46
 │   └── sakurazaka.py       #   樱坂46
 ├── requirements.txt        # Python 依赖
+├── tools/                  # 辅助工具
+│   └── get_qq_openid.py    #   QQ Bot openid 获取工具
 ├── .env.example            # 环境变量配置模板
 ├── blacklist.example.json  # 黑名单模板（可选）
 ├── blacklist.json          # 用户黑名单（可选）
