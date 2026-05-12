@@ -1,0 +1,27 @@
+# 环境变量（含密钥，切勿提交）
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyc
+
+# 日志
+*.log
+
+# 运行时数据
+blog_records.json
+blog_records.tmp
+blog_images/
+
+# IDE
+.vscode/
+.idea/
+
+# Claude Code
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db
