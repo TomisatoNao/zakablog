@@ -2,7 +2,7 @@
 import time
 import logging
 from config import BOTS, QQ_API_BASE, IMAGE_SEND_DELAY, BOT_SWITCH_DELAY
-from network import post
+from core.network import post
 
 log = logging.getLogger(__name__)
 

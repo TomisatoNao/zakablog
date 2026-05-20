@@ -3,7 +3,7 @@ import logging
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 
-from network import get, parse_jsonp
+from core.network import get, parse_jsonp
 
 log = logging.getLogger(__name__)
 

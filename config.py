@@ -50,8 +50,10 @@ class PrettyFormatter(logging.Formatter):
 _console_handler = logging.StreamHandler(sys.stdout)
 _console_handler.setFormatter(PrettyFormatter())
 
+_log_dir = ROOT / "logs"
+_log_dir.mkdir(exist_ok=True)
 _file_handler = RotatingFileHandler(
-    ROOT / "blog.log", encoding="utf-8", maxBytes=10 * 1024 * 1024, backupCount=5
+    _log_dir / "blog.log", encoding="utf-8", maxBytes=10 * 1024 * 1024, backupCount=5
 )
 _file_handler.setLevel(logging.INFO)
 _file_handler.setFormatter(logging.Formatter(
@@ -63,8 +65,8 @@ logging.basicConfig(level=logging.INFO, handlers=[_console_handler, _file_handle
 
 # ── 路径 ─────────────────────────────────────
 SAVE_DIR    = ROOT / "blog_images"
-RECORD_FILE = ROOT / "blog_records.json"
-BLACKLIST_FILE = ROOT / "blacklist.json"
+RECORD_FILE = ROOT / "data" / "blog_records.json"
+BLACKLIST_FILE = ROOT / "data" / "blacklist.json"
 QQ_API_BASE = "https://api.sgroup.qq.com"
 
 # ── Bot 配置 ─────────────────────────────────

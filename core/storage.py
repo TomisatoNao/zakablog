@@ -4,7 +4,7 @@ import json
 import shutil
 import logging
 from config import SAVE_DIR, RECORD_FILE, MAX_IMAGE_DIR_GB, MAX_IMAGE_MB
-from network import get
+from core.network import get
 
 log = logging.getLogger(__name__)
 

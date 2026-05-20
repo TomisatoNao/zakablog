@@ -8,11 +8,13 @@ __pycache__/
 *.pyc
 
 # 日志
+logs/
 *.log
 
 # 运行时数据
-blog_records.json
-blog_records.tmp
+data/blog_records.json
+data/blog_records.tmp
+data/blacklist.json
 blog_images/
 
 # IDE

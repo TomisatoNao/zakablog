@@ -6,12 +6,13 @@ import logging
 from datetime import datetime
 from config import (
     RESET, BOLD, DIM, C_TIME, C_INFO, C_WARN, C_ERR, C_NEW, C_SLEEP,
-    USE_COLOR, BOTS, BLACKLIST, DAY_MIN, DAY_MAX, NIGHT_MIN, NIGHT_MAX, JST,
+    USE_COLOR, BOTS, BLACKLIST, QQ_ENABLED, TG_ENABLED, TG_GROUPS,
+    DAY_MIN, DAY_MAX, NIGHT_MIN, NIGHT_MAX, JST,
 )
 from sources import hinatazaka, nogizaka, sakurazaka
-from storage import load_records, save_records, download_images, check_and_cleanup
-from qq_bot import push_to_all
-import tg_bot
+from core.storage import load_records, save_records, download_images, check_and_cleanup
+from bots.qq_bot import push_to_all
+from bots import tg_bot
 
 log = logging.getLogger(__name__)
 
@@ -79,6 +80,32 @@ def _render_panel(cycle: int, interval: int, is_night: bool,
         else:
             print(f"   {label}  {DIM}暂无数据{RESET}")
     print(f"{DIM}{'-' * W}{RESET}")
+
+    print(f"   {BOLD}推送配置{RESET}")
+    # QQ
+    if not QQ_ENABLED:
+        print(f"   QQ  {DIM}✗ 总开关已关闭{RESET}")
+    elif not BOTS:
+        print(f"   QQ  {DIM}未配置 Bot{RESET}")
+    else:
+        for bot in BOTS:
+            parts = []
+            for k, abbr in [("hinatazaka", "日向"), ("nogizaka", "乃木"), ("sakurazaka", "樱坂")]:
+                en = bot["groups"].get(k, True)
+                parts.append(f"{abbr}{C_INFO}✓{RESET}" if en else f"{abbr}{DIM}✗{RESET}")
+            print(f"   QQ  [{bot['name']}]  {'  '.join(parts)}")
+    # Telegram
+    if not TG_ENABLED:
+        print(f"   TG  {DIM}✗ 总开关已关闭{RESET}")
+    else:
+        tg_parts = []
+        for k, abbr in [("hinatazaka", "日向"), ("nogizaka", "乃木"), ("sakurazaka", "樱坂")]:
+            cfg = TG_GROUPS.get(k, {})
+            if cfg.get("enabled") and cfg.get("token") and cfg.get("chat_id"):
+                tg_parts.append(f"{abbr}{C_INFO}✓{RESET}")
+            else:
+                tg_parts.append(f"{abbr}{DIM}✗{RESET}")
+        print(f"   TG  {'  '.join(tg_parts)}")
 
     moon = "🌙" if is_night else "💤"
     print(f"   {DIM}{moon} 下次巡检：{_fmt_time(interval)} 后（Ctrl+C 退出）{RESET}")

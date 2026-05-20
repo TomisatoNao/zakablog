@@ -52,10 +52,10 @@ def post(url, *, json_data=None, headers=None, timeout=12) -> dict:
     except requests.HTTPError as e:
         body = e.response.text[:300] if e.response is not None else ""
         log.warning("POST HTTP %d: %s | body: %s", e.response.status_code, url, body)
-        return {}
+        return {"err_code": -1}
     except Exception as e:
         log.warning("POST 失败: %s | %s", url, e)
-        return {}
+        return {"err_code": -1}
 
 
 def parse_jsonp(text: str) -> dict:

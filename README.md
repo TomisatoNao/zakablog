@@ -131,24 +131,28 @@ zakablog/
 ├── blog.py                 # 启动入口
 ├── main.py                 # 主调度（面板、巡检编排、主循环）
 ├── config.py               # 全局配置、路径、环境变量、日志初始化
-├── network.py              # HTTP 请求（GET/POST）与 JSONP 解析
-├── qq_bot.py               # QQ Bot：Token 缓存、文字/图片推送
-├── tg_bot.py                # Telegram Bot：文本/媒体组推送
-├── storage.py               # 状态持久化、图片下载与清理
+├── core/                   # 共享工具模块
+│   ├── network.py          #   HTTP 请求（GET/POST）与 JSONP 解析
+│   └── storage.py          #   状态持久化、图片下载与清理
+├── bots/                   # 通知推送模块
+│   ├── qq_bot.py           #   QQ Bot：Token 缓存、文字/图片推送
+│   └── tg_bot.py           #   Telegram Bot：文本/媒体组推送
 ├── sources/                # 博客源抓取模块
 │   ├── hinatazaka.py       #   日向坂46
 │   ├── nogizaka.py         #   乃木坂46
 │   └── sakurazaka.py       #   樱坂46
-├── requirements.txt        # Python 依赖
 ├── tools/                  # 辅助工具
 │   └── get_qq_openid.py    #   QQ Bot openid 获取工具
+├── data/                   # 运行时数据（自动生成）
+│   ├── blog_records.json   #   各坂道已抓取的最新博客 URL
+│   ├── blacklist.json      #   用户黑名单（可选）
+│   └── blacklist.example.json  # 黑名单模板
+├── logs/                   # 运行日志（自动轮转）
+│   └── blog.log
+├── blog_images/            # 下载的博客图片
 ├── .env.example            # 环境变量配置模板
-├── blacklist.example.json  # 黑名单模板（可选）
-├── blacklist.json          # 用户黑名单（可选）
 ├── .gitignore
-├── blog_records.json       # 各坂道已抓取的最新博客 URL（自动生成）
-├── blog.log                # 运行日志（自动轮转）
-└── blog_images/            # 下载的博客图片
+└── requirements.txt        # Python 依赖
 ```
 
 ## 运行效果
