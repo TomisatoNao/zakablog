@@ -1,7 +1,7 @@
 """Telegram Bot：文本/媒体组推送，一个坂道一个机器人。"""
 import asyncio
 import logging
-from config import TG_ENABLED, TG_GROUPS, get_blacklist
+from config import TG_ENABLED, TG_GROUPS, get_blacklist, MAX_RETRIES
 
 log = logging.getLogger(__name__)
 
@@ -35,18 +35,27 @@ async def _push_async(token: str, chat_id: str, group_name: str,
         f"👉 <a href=\"{blog_url}\">博客链接</a>"
     )
 
-    # 无图片：纯文字
+    # 无图片：纯文字（带重试）
     if not images:
-        try:
-            await bot.send_message(chat_id=chat_id, text=html_text,
-                                   parse_mode=ParseMode.HTML, disable_web_page_preview=True)
-            log.info("  ✓ Telegram 推送 → [%s]", group_name)
-            return True
-        except Exception as e:
-            log.warning("  ✗ Telegram 推送失败 [%s]: %s", group_name, e)
-            return False
+        for attempt in range(1, MAX_RETRIES + 1):
+            try:
+                await bot.send_message(chat_id=chat_id, text=html_text,
+                                       parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+                log.info("  ✓ Telegram 推送 → [%s]", group_name)
+                return True
+            except Exception as e:
+                if attempt < MAX_RETRIES:
+                    wait = 2 ** attempt
+                    log.warning("Telegram 推送失败 [%s] 第%d次: %s，%ds后重试",
+                                group_name, attempt, e, wait)
+                    await asyncio.sleep(wait)
+                else:
+                    log.warning("  ✗ Telegram 推送失败 [%s]（已重试%d次）: %s",
+                                group_name, MAX_RETRIES, e)
+                    return False
+        return False
 
-    # 有图片：第一张带 HTML 摘要，≤10 张/组
+    # 有图片：第一张带 HTML 摘要，≤10 张/组（带重试）
     batches = list(_chunks(images, 10))
     ok_count = 0
     for bi, batch in enumerate(batches):
@@ -58,12 +67,24 @@ async def _push_async(token: str, chat_id: str, group_name: str,
                                              parse_mode=ParseMode.HTML))
             else:
                 media.append(InputMediaPhoto(media=url))
-        try:
-            await bot.send_media_group(chat_id=chat_id, media=media)
-            ok_count += len(batch)
-        except Exception as e:
-            log.warning("Telegram 媒体组发送失败 [%s] %d 张: %s",
-                        group_name, len(batch), e)
+        sent = False
+        for attempt in range(1, MAX_RETRIES + 1):
+            try:
+                await bot.send_media_group(chat_id=chat_id, media=media)
+                ok_count += len(batch)
+                sent = True
+                break
+            except Exception as e:
+                if attempt < MAX_RETRIES:
+                    wait = 2 ** attempt
+                    log.warning("Telegram 媒体组发送失败 [%s] 第%d组 第%d次: %s，%ds后重试",
+                                group_name, bi + 1, attempt, e, wait)
+                    await asyncio.sleep(wait)
+                else:
+                    log.warning("Telegram 媒体组发送失败 [%s] 第%d组（已重试%d次）: %s",
+                                group_name, bi + 1, MAX_RETRIES, e)
+        if not sent:
+            log.warning("  ✗ Telegram 第%d组彻底失败，跳过 %d 张", bi + 1, len(batch))
 
     total = len(images)
     if total > 10:

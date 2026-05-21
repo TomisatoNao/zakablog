@@ -46,7 +46,10 @@ def _next_interval() -> tuple[int, bool]:
 
 
 def _clear_terminal():
-    print("\033[2J\033[H", end="")
+    if USE_COLOR:
+        sys.stdout.write("\033[2J\033[H")
+        sys.stdout.flush()
+
 
 
 # ── 面板 ─────────────────────────────────────
