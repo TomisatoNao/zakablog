@@ -130,7 +130,7 @@ python tools/get_qq_openid.py
 {
   "global": [],
   "Bot 1": [],
-  "Bot 2": ["小津 玲奈", "中西 アルノ", "遠藤 さくら"],
+  "Bot 2": ["示例 太郎", "示例 次郎", "示例 三郎"],
   "tg": {
     "hinatazaka": [],
     "nogizaka": [],
