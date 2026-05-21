@@ -6,7 +6,7 @@ import logging
 from datetime import datetime
 from config import (
     RESET, BOLD, DIM, C_TIME, C_INFO, C_WARN, C_ERR, C_NEW, C_SLEEP,
-    USE_COLOR, BOTS, get_blacklist, QQ_ENABLED, TG_ENABLED, TG_GROUPS,
+    USE_COLOR, BOTS, BLACKLIST, get_blacklist, QQ_ENABLED, TG_ENABLED, TG_GROUPS,
     DAY_MIN, DAY_MAX, NIGHT_MIN, NIGHT_MAX, JST,
 )
 from sources import hinatazaka, nogizaka, sakurazaka
@@ -206,6 +206,21 @@ def main() -> None:
         log.warning("未配置任何 Bot（请设置 BOT1_CLIENT_SECRET 等环境变量），仅做本地监控。")
     log.info("监控服务已启动  日间:%d~%ds  夜间:%d~%ds",
              DAY_MIN, DAY_MAX, NIGHT_MIN, NIGHT_MAX)
+    # 黑名单摘要
+    parts = [f"global={len(BLACKLIST.get('global', set()))}"]
+    for i in range(1, 5):
+        name = f"Bot {i}"
+        bl = BLACKLIST.get(name, set())
+        parts.append(f"{name}={len(bl)}" if bl else f"{name}=(空)")
+    tg_count = sum(len(BLACKLIST.get(f"tg.{k}", set())) for k in ("hinatazaka", "nogizaka", "sakurazaka"))
+    parts.append(f"TG={tg_count}" if tg_count else "TG=(空)")
+    log.info("黑名单: %s", " | ".join(parts))
+    for key, label in [("global", None), ("Bot 1", None), ("Bot 2", None), ("Bot 3", None), ("Bot 4", None),
+                       ("tg.hinatazaka", "TG日向"), ("tg.nogizaka", "TG乃木"), ("tg.sakurazaka", "TG樱")]:
+        names = BLACKLIST.get(key, set())
+        if names:
+            tag = label or key
+            log.info("  [%s] %s", tag, ", ".join(sorted(names)))
 
     cycle = 1
     run_monitor(cycle)
