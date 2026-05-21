@@ -1,7 +1,7 @@
 """Telegram Bot：文本/媒体组推送，一个坂道一个机器人。"""
 import asyncio
 import logging
-from config import TG_ENABLED, TG_GROUPS
+from config import TG_ENABLED, TG_GROUPS, get_blacklist
 
 log = logging.getLogger(__name__)
 
@@ -71,6 +71,9 @@ def push_to_group(group_key: str, group_name: str,
         return False
     if not cfg.get("token") or not cfg.get("chat_id"):
         log.debug("Telegram [%s] token/chat_id 未配置，跳过", group_name)
+        return False
+    if author in get_blacklist(tg_group=group_key):
+        log.info("  🚫 Telegram [%s] %s 在黑名单中，跳过", group_name, author)
         return False
 
     log.info("  ▶ Telegram 推送 [%s] ...", group_name)

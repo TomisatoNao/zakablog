@@ -6,7 +6,7 @@ import logging
 from datetime import datetime
 from config import (
     RESET, BOLD, DIM, C_TIME, C_INFO, C_WARN, C_ERR, C_NEW, C_SLEEP,
-    USE_COLOR, BOTS, BLACKLIST, QQ_ENABLED, TG_ENABLED, TG_GROUPS,
+    USE_COLOR, BOTS, get_blacklist, QQ_ENABLED, TG_ENABLED, TG_GROUPS,
     DAY_MIN, DAY_MAX, NIGHT_MIN, NIGHT_MAX, JST,
 )
 from sources import hinatazaka, nogizaka, sakurazaka
@@ -158,8 +158,8 @@ def run_monitor(cycle: int, interval: int = 0, is_night: bool = False) -> None:
         for post in reversed(unseen):
             url, title, author = post["url"], post["title"], post["author"]
 
-            if author in BLACKLIST:
-                status.append(f"[{group_name}] {DIM}🚫 {author}（黑名单）{RESET}")
+            if author in get_blacklist():
+                status.append(f"[{group_name}] {DIM}🚫 {author}（全局黑名单）{RESET}")
                 records[key] = url
                 save_records(records)
                 continue

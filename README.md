@@ -118,11 +118,32 @@ python tools/get_qq_openid.py
 | `NIGHT_MIN` / `NIGHT_MAX` | 1650 / 1950 秒 | 夜间巡检间隔范围 |
 | `IMAGE_SEND_DELAY` | 1.5 秒 | 单张图片发送间隔 |
 | `BOT_SWITCH_DELAY` | 3.0 秒 | 多 Bot 切换间隔 |
-| `BLACKLIST_FILE` | `./data/blacklist.json` | 黑名单文件路径，JSON 字符串数组 |
+| `BLACKLIST_FILE` | `./data/blacklist.json` | 黑名单文件路径，见下方格式说明 |
 | `MAX_IMAGE_DIR_GB` | 5 | 图片目录容量上限（GB），超限整目录删除，0 = 不限制 |
 | `MAX_IMAGE_MB` | 20 | 单张图片大小上限（MB），超限跳过 |
 | `QQ_ENABLED` / `TG_ENABLED` | true / false | 平台总开关 |
 | `MAX_RETRIES` | 3 | 网络请求失败重试次数 |
+
+### 黑名单格式
+
+```json
+{
+  "global": [],
+  "Bot 1": [],
+  "Bot 2": ["小津 玲奈", "中西 アルノ", "遠藤 さくら"],
+  "tg": {
+    "hinatazaka": [],
+    "nogizaka": [],
+    "sakurazaka": []
+  }
+}
+```
+
+- `global` — 所有平台/Bot 生效，命中后不推送、直接推进记录
+- `Bot 1` ~ `Bot 4` — 仅对指定 QQ Bot 生效，其他 Bot 不受影响
+- `tg` 下按坂道分组 — 仅对 TG 指定坂道生效
+
+兼容旧格式：若文件为纯字符串数组 `["作者A", "作者B"]`，自动视为 `global`。
 
 ## 项目结构
 

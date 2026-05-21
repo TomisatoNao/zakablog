@@ -1,4 +1,16 @@
-[
-    "示例 花子",
-    "Example Hanako"
-]
+{
+  "global": [
+    "示例 花子"
+  ],
+  "Bot 1": [],
+  "Bot 2": [
+    "小津 玲奈",
+    "中西 アルノ",
+    "遠藤 さくら"
+  ],
+  "tg": {
+    "hinatazaka": [],
+    "nogizaka": [],
+    "sakurazaka": []
+  }
+}

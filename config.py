@@ -94,16 +94,43 @@ def _load_bots() -> list[dict]:
 BOTS = _load_bots()
 
 # ── 黑名单 ───────────────────────────────────
-def _load_blacklist() -> set[str]:
-    if os.path.exists(BLACKLIST_FILE):
-        try:
-            with open(BLACKLIST_FILE, "r", encoding="utf-8") as f:
-                return set(json.load(f))
-        except Exception as e:
-            log.warning("黑名单文件读取失败: %s", e)
-    return set()
+def _load_blacklist() -> dict[str, set[str]]:
+    """返回 {key: set(authors)}。
+    key: 'global', 'Bot 1'..'Bot 4', 'tg.hinatazaka', 'tg.nogizaka', 'tg.sakurazaka'
+    兼容旧格式：纯数组自动转为 global。
+    """
+    empty = {"global": set()}
+    if not os.path.exists(BLACKLIST_FILE):
+        return empty
+    try:
+        with open(BLACKLIST_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception as e:
+        log.warning("黑名单文件读取失败: %s", e)
+        return empty
+    if isinstance(data, list):
+        return {"global": set(data)}
+    if not isinstance(data, dict):
+        return empty
+    result = {"global": set(data.get("global", []))}
+    for i in range(1, 5):
+        result[f"Bot {i}"] = set(data.get(f"Bot {i}", []))
+    tg = data.get("tg", {}) if isinstance(data.get("tg"), dict) else {}
+    for k in ("hinatazaka", "nogizaka", "sakurazaka"):
+        result[f"tg.{k}"] = set(tg.get(k, []))
+    return result
 
 BLACKLIST = _load_blacklist()
+
+
+def get_blacklist(bot_name: str = "", tg_group: str = "") -> set[str]:
+    """返回指定通道的生效黑名单：global + 对应 Bot/TG 名单。"""
+    s = set(BLACKLIST.get("global", set()))
+    if bot_name:
+        s.update(BLACKLIST.get(bot_name, set()))
+    if tg_group:
+        s.update(BLACKLIST.get(f"tg.{tg_group}", set()))
+    return s
 
 # ── 平台开关 ─────────────────────────────────
 QQ_ENABLED = os.getenv("QQ_ENABLED", "true").lower() != "false"

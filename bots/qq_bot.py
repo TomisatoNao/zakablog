@@ -1,7 +1,7 @@
 """QQ Bot：Token 缓存、文字/图片推送。"""
 import time
 import logging
-from config import BOTS, QQ_API_BASE, IMAGE_SEND_DELAY, BOT_SWITCH_DELAY
+from config import BOTS, get_blacklist, QQ_API_BASE, IMAGE_SEND_DELAY, BOT_SWITCH_DELAY
 from core.network import post
 
 log = logging.getLogger(__name__)
@@ -109,6 +109,9 @@ def push_to_all(group_key: str, group: str, author: str, title: str,
     for bi, bot in enumerate(BOTS):
         if not bot["groups"].get(group_key, True):
             log.info("  ⏭ [%s] 已关闭 %s 推送，跳过", bot["name"], group)
+            continue
+        if author in get_blacklist(bot_name=bot["name"]):
+            log.info("  🚫 [%s] %s 在黑名单中，跳过", bot["name"], author)
             continue
         if bi > 0:
             time.sleep(BOT_SWITCH_DELAY)
