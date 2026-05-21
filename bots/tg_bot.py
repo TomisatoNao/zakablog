@@ -25,35 +25,52 @@ async def _push_async(token: str, chat_id: str, group_name: str,
     emoji = "🌸" if "樱" in group_name else "☀️" if "日" in group_name else "💜" if "乃" in group_name else "🤖"
 
     date_line = f"<b>时间</b>：{blog_date}\n" if blog_date else ""
+    img_note = f"<b>照片</b>：共 {len(images)} 张\n\n" if images else "\n"
     html_text = (
         f"{emoji} <b>{group_name} 博客更新</b>\n\n"
         f"<b>作者</b>：{author}\n"
         f"<b>标题</b>：{title}\n"
         f"{date_line}"
-        f"<b>照片</b>：共 {len(images)} 张\n\n"
+        f"{img_note}"
         f"👉 <a href=\"{blog_url}\">博客链接</a>"
     )
 
-    try:
-        await bot.send_message(chat_id=chat_id, text=html_text,
-                               parse_mode=ParseMode.HTML, disable_web_page_preview=True)
-        log.info("  ✓ Telegram 文字通知 → [%s]", group_name)
-    except Exception as e:
-        log.warning("  ✗ Telegram 文字通知失败 [%s]: %s", group_name, e)
-        return False
-
-    # 媒体组发送（≤10 张/组）
-    ok_count = 0
-    for batch in _chunks(images, 10):
+    # 无图片：纯文字
+    if not images:
         try:
-            media = [InputMediaPhoto(media=url) for url in batch]
+            await bot.send_message(chat_id=chat_id, text=html_text,
+                                   parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+            log.info("  ✓ Telegram 推送 → [%s]", group_name)
+            return True
+        except Exception as e:
+            log.warning("  ✗ Telegram 推送失败 [%s]: %s", group_name, e)
+            return False
+
+    # 有图片：第一张带 HTML 摘要，≤10 张/组
+    batches = list(_chunks(images, 10))
+    ok_count = 0
+    for bi, batch in enumerate(batches):
+        caption = html_text if bi == 0 else ""
+        media = []
+        for i, url in enumerate(batch):
+            if bi == 0 and i == 0:
+                media.append(InputMediaPhoto(media=url, caption=caption,
+                                             parse_mode=ParseMode.HTML))
+            else:
+                media.append(InputMediaPhoto(media=url))
+        try:
             await bot.send_media_group(chat_id=chat_id, media=media)
             ok_count += len(batch)
         except Exception as e:
             log.warning("Telegram 媒体组发送失败 [%s] %d 张: %s",
                         group_name, len(batch), e)
-    if images:
-        log.info("  📷 Telegram 图片 %d/%d → [%s]", ok_count, len(images), group_name)
+
+    total = len(images)
+    if total > 10:
+        log.info("  ✓ Telegram 推送 %d/%d 张（%d 组）→ [%s]",
+                 ok_count, total, len(batches), group_name)
+    else:
+        log.info("  ✓ Telegram 推送 %d/%d 张 → [%s]", ok_count, total, group_name)
     return True
 
 
