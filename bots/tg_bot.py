@@ -17,6 +17,7 @@ async def _push_async(token: str, chat_id: str, group_name: str,
     try:
         from telegram import Bot, InputMediaPhoto
         from telegram.constants import ParseMode
+        from telegram.error import TimedOut
     except ImportError:
         log.warning("python-telegram-bot 未安装，跳过 Telegram 推送")
         return False
@@ -35,13 +36,16 @@ async def _push_async(token: str, chat_id: str, group_name: str,
         f"👉 <a href=\"{blog_url}\">博客链接</a>"
     )
 
-    # 无图片：纯文字（带重试）
+    # 无图片：纯文字
     if not images:
         for attempt in range(1, MAX_RETRIES + 1):
             try:
                 await bot.send_message(chat_id=chat_id, text=html_text,
                                        parse_mode=ParseMode.HTML, disable_web_page_preview=True)
                 log.info("  ✓ Telegram 推送 → [%s]", group_name)
+                return True
+            except TimedOut:
+                log.warning("Telegram 推送超时 [%s]（服务端可能已收到），视为成功", group_name)
                 return True
             except Exception as e:
                 if attempt < MAX_RETRIES:
@@ -55,9 +59,10 @@ async def _push_async(token: str, chat_id: str, group_name: str,
                     return False
         return False
 
-    # 有图片：第一张带 HTML 摘要，≤10 张/组（不重试，超时可能服务端已收到）
+    # 有图片：第一张带 HTML 摘要，≤10 张/组
     batches = list(_chunks(images, 10))
     ok_count = 0
+    any_explicit_fail = False
     for bi, batch in enumerate(batches):
         caption = html_text if bi == 0 else ""
         media = []
@@ -67,14 +72,35 @@ async def _push_async(token: str, chat_id: str, group_name: str,
                                              parse_mode=ParseMode.HTML))
             else:
                 media.append(InputMediaPhoto(media=url))
-        try:
-            await bot.send_media_group(chat_id=chat_id, media=media)
-            ok_count += len(batch)
-        except Exception as e:
-            log.warning("Telegram 媒体组发送失败 [%s] %d 张（服务端可能已收到）: %s",
-                        group_name, len(batch), e)
+        sent = False
+        for attempt in range(1, MAX_RETRIES + 1):
+            try:
+                await bot.send_media_group(chat_id=chat_id, media=media)
+                ok_count += len(batch)
+                sent = True
+                break
+            except TimedOut:
+                log.warning("Telegram 媒体组超时 [%s] 第%d组（服务端可能已收到），视为成功",
+                            group_name, bi + 1)
+                ok_count += len(batch)
+                sent = True
+                break
+            except Exception as e:
+                if attempt < MAX_RETRIES:
+                    wait = 2 ** attempt
+                    log.warning("Telegram 媒体组发送失败 [%s] 第%d组 第%d次: %s，%ds后重试",
+                                group_name, bi + 1, attempt, e, wait)
+                    await asyncio.sleep(wait)
+                else:
+                    log.warning("Telegram 媒体组彻底失败 [%s] 第%d组（已重试%d次）: %s",
+                                group_name, bi + 1, MAX_RETRIES, e)
+        if not sent:
+            any_explicit_fail = True
 
     total = len(images)
+    if any_explicit_fail and ok_count == 0:
+        log.warning("  ✗ Telegram 推送失败 %d/%d 张 → [%s]", ok_count, total, group_name)
+        return False
     if total > 10:
         log.info("  ✓ Telegram 推送 %d/%d 张（%d 组）→ [%s]",
                  ok_count, total, len(batches), group_name)
