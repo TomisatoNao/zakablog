@@ -21,7 +21,7 @@ async def _push_async(token: str, chat_id: str, group_name: str,
         log.warning("python-telegram-bot 未安装，跳过 Telegram 推送")
         return False
 
-    bot = Bot(token=token)
+    bot = Bot(token=token, read_timeout=120, connect_timeout=10, write_timeout=60)
     emoji = "🌸" if "樱" in group_name else "☀️" if "日" in group_name else "💜" if "乃" in group_name else "🤖"
 
     date_line = f"<b>时间</b>：{blog_date}\n" if blog_date else ""
@@ -68,8 +68,7 @@ async def _push_async(token: str, chat_id: str, group_name: str,
             else:
                 media.append(InputMediaPhoto(media=url))
         try:
-            await bot.send_media_group(chat_id=chat_id, media=media,
-                                       read_timeout=30)
+            await bot.send_media_group(chat_id=chat_id, media=media)
             ok_count += len(batch)
         except Exception as e:
             log.warning("Telegram 媒体组发送失败 [%s] %d 张（服务端可能已收到）: %s",
