@@ -7,10 +7,11 @@ from datetime import datetime
 from config import (
     RESET, BOLD, DIM, C_TIME, C_INFO, C_WARN, C_ERR, C_NEW, C_SLEEP,
     USE_COLOR, BOTS, BLACKLIST, get_blacklist, QQ_ENABLED, TG_ENABLED, TG_GROUPS,
-    DAY_MIN, DAY_MAX, NIGHT_MIN, NIGHT_MAX, JST,
+    TRANSLATE_ENABLED, DAY_MIN, DAY_MAX, NIGHT_MIN, NIGHT_MAX, JST,
 )
 from sources import hinatazaka, nogizaka, sakurazaka
 from core.storage import load_records, save_records, download_images, check_and_cleanup
+from core.translator import translate
 from bots.qq_bot import push_to_all
 from bots import tg_bot
 
@@ -173,20 +174,32 @@ def run_monitor(cycle: int, interval: int = 0, is_night: bool = False) -> None:
                      group_name, author, title, blog_date, url)
 
             images: list[str] = post.get("images", [])
+            body = ""
             if fetch_images and not images:
                 if need_detail:
-                    images, detail_date = sakurazaka.fetch_detail(url)
+                    images, detail_date, body = sakurazaka.fetch_detail(url)
                     if detail_date:
                         blog_date = detail_date
                 else:
                     images = fetch_images(url)
+                    body = hinatazaka.fetch_body(url)
+            elif not need_detail:
+                body = post.get("body", "")
 
             if images:
                 download_images(group_name, author, title, images)
 
-            pushed_qq = push_to_all(key, group_name, author, title, url, images, blog_date)
+            body_zh = ""
+            if TRANSLATE_ENABLED and body:
+                log.info("  🌐 翻译中...")
+                body_zh = translate(body)
+                if body_zh:
+                    log.info("  ✓ 翻译完成 (%d 字)", len(body_zh))
+
+            pushed_qq = push_to_all(key, group_name, author, title, url, images, blog_date,
+                                    body_zh)
             pushed_tg = tg_bot.push_to_group(
-                key, group_name, author, title, url, images, blog_date
+                key, group_name, author, title, url, images, blog_date, body_zh
             )
             if pushed_qq or pushed_tg:
                 records[key] = url

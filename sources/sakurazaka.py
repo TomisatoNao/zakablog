@@ -52,12 +52,11 @@ def fetch_posts(limit: int = 30) -> list[dict]:
 
 
 def fetch_images(url: str) -> list[str]:
-    imgs, _ = fetch_detail(url)
-    return imgs
+    return fetch_detail(url)[0]
 
 
-def fetch_detail(url: str) -> tuple[list[str], str]:
-    """返回 (图片列表, 精确发送时间)。"""
+def fetch_detail(url: str) -> tuple[list[str], str, str]:
+    """返回 (图片列表, 精确发送时间, 正文纯文本)。"""
     try:
         r    = get(url)
         soup = BeautifulSoup(r.text, "html.parser")
@@ -66,13 +65,14 @@ def fetch_detail(url: str) -> tuple[list[str], str]:
             urljoin("https://sakurazaka46.com", img["src"])
             for img in body.find_all("img") if img.get("src")
         ]
+        body_text = body.get_text("\n").strip()
         foot = soup.find("div", class_="blog-foot")
         date_str = ""
         if foot:
             d_tag = foot.find("p", class_="date")
             if d_tag:
                 date_str = _parse_date(d_tag.text.strip())
-        return imgs, date_str
+        return imgs, date_str, body_text
     except Exception as e:
         log.warning("樱坂详情抓取失败 (%s): %s", url, e)
-        return [], ""
+        return [], "", ""

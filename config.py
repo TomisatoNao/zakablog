@@ -136,6 +136,18 @@ def get_blacklist(bot_name: str = "", tg_group: str = "") -> set[str]:
 QQ_ENABLED = os.getenv("QQ_ENABLED", "true").lower() != "false"
 TG_ENABLED  = os.getenv("TG_ENABLED", "false").lower() == "true"
 
+# ── 翻译 ─────────────────────────────────────
+TRANSLATE_ENABLED = os.getenv("TRANSLATE_ENABLED", "false").lower() == "true"
+GEMINI_API_KEY    = os.getenv("GEMINI_API_KEY", "").strip()
+
+GEMINI_MODELS: list[dict] = [
+    {"name": "gemini-3.1-flash-lite", "rpm": 15},
+    {"name": "gemini-2.5-flash",      "rpm": 10},
+    {"name": "gemini-2.5-flash-lite", "rpm": 15},
+    {"name": "gemini-2.5-pro",        "rpm": 5},
+    {"name": "gemini-2.0-flash",      "rpm": 10},
+]
+
 # ── Telegram 坂道配置 ────────────────────────
 def _load_tg_groups() -> dict:
     groups = {}

@@ -32,10 +32,14 @@ def fetch_posts(limit: int = 30) -> list[dict]:
         return []
 
 
+def _get_article(url: str) -> BeautifulSoup | None:
+    r = get(url)
+    return BeautifulSoup(r.text, "html.parser").find("div", class_="c-blog-article__text")
+
+
 def fetch_images(url: str) -> list[str]:
     try:
-        r    = get(url)
-        body = BeautifulSoup(r.text, "html.parser").find("div", class_="c-blog-article__text")
+        body = _get_article(url)
         if not body:
             return []
         return [
@@ -46,3 +50,13 @@ def fetch_images(url: str) -> list[str]:
     except Exception as e:
         log.warning("日向坂图片抓取失败 (%s): %s", url, e)
         return []
+
+
+def fetch_body(url: str) -> str:
+    """获取正文纯文本，用于翻译。"""
+    try:
+        body = _get_article(url)
+        return body.get_text("\n").strip() if body else ""
+    except Exception as e:
+        log.warning("日向坂正文抓取失败 (%s): %s", url, e)
+        return ""

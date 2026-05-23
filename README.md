@@ -7,6 +7,7 @@
 - 同时监控三个坂道团体（日向坂46、乃木坂46、樱坂46）的官方博客
 - 检测到新博客时自动下载全部图片到本地
 - 通过 QQ Bot / Telegram Bot 双平台推送通知和图片
+- Gemini AI 日→中翻译博客正文（多模型池自动降级）
 - 自适应巡检频率：日间 2.5~3.5 分钟，夜间 27.5~32.5 分钟（JST）
 - 终端彩色状态面板，实时展示各坂道最新博客
 - 日志自动轮转（10MB × 5 个备份）
@@ -106,7 +107,18 @@ python tools/get_qq_openid.py
 | `TG_SAKURA_BOT_TOKEN` | 樱坂 Telegram Bot Token | 按需 |
 | `TG_SAKURA_CHAT_ID` | 樱坂推送目标 | 按需 |
 
-图片以媒体组方式发送（≤10 张/组，超过自动拆组）。
+图片以媒体组方式发送（≤10 张/组，超过自动拆组），正文摘要与第一张图合并为一条消息。
+
+### 翻译（Gemini API）
+
+通过 Gemini 免费 API（1500 次/天）将博客正文从日语翻译为中文，翻译结果作为独立消息推送到各平台。
+
+| 变量 | 说明 | 必填 |
+|---|---|---|
+| `TRANSLATE_ENABLED` | 翻译总开关（默认 false） | 否 |
+| `GEMINI_API_KEY` | Gemini API Key，从 [Google AI Studio](https://aistudio.google.com/apikey) 获取 | 按需 |
+
+翻译使用多模型池按优先级自动降级：`gemini-3.1-flash-lite` → `gemini-2.5-flash` → `gemini-2.5-flash-lite` → `gemini-2.5-pro` → `gemini-2.0-flash`，每个模型有独立的 RPM 冷却。
 
 ## 配置说明
 
@@ -122,6 +134,8 @@ python tools/get_qq_openid.py
 | `MAX_IMAGE_DIR_GB` | 5 | 图片目录容量上限（GB），超限整目录删除，0 = 不限制 |
 | `MAX_IMAGE_MB` | 20 | 单张图片大小上限（MB），超限跳过 |
 | `QQ_ENABLED` / `TG_ENABLED` | true / false | 平台总开关 |
+| `TRANSLATE_ENABLED` | false | 翻译总开关 |
+| `GEMINI_MODELS` | 5 个模型 | 翻译模型池（按优先级排列，自动降级） |
 | `MAX_RETRIES` | 3 | 网络请求失败重试次数 |
 
 ### 黑名单格式
@@ -154,7 +168,8 @@ zakablog/
 ├── config.py               # 全局配置、路径、环境变量、日志初始化
 ├── core/                   # 共享工具模块
 │   ├── network.py          #   HTTP 请求（GET/POST）与 JSONP 解析
-│   └── storage.py          #   状态持久化、图片下载与清理
+│   ├── storage.py          #   状态持久化、图片下载与清理
+│   └── translator.py       #   Gemini 日→中翻译（多模型池 + RPM 冷却）
 ├── bots/                   # 通知推送模块
 │   ├── qq_bot.py           #   QQ Bot：Token 缓存、文字/图片推送
 │   └── tg_bot.py           #   Telegram Bot：文本/媒体组推送

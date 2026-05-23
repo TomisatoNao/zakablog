@@ -30,6 +30,7 @@ def fetch_posts(limit: int = 30) -> list[dict]:
                 "author": item.get("name",  "乃木坂46成员"),
                 "images": images,
                 "date":   item.get("date",  ""),
+                "body":   soup.get_text("\n").strip(),
             })
         return posts
     except Exception as e:

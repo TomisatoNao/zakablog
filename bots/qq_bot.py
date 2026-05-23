@@ -99,7 +99,8 @@ def _send_image(token: str, openid: str, image_url: str,
 
 
 def push_to_all(group_key: str, group: str, author: str, title: str,
-                blog_url: str, images: list[str], blog_date: str = "") -> bool:
+                blog_url: str, images: list[str], blog_date: str = "",
+                body_zh: str = "") -> bool:
     """推送到所有 Bot，返回是否有至少一个 Bot 文字通知成功。"""
     from config import QQ_ENABLED
     if not QQ_ENABLED:
@@ -137,4 +138,16 @@ def push_to_all(group_key: str, group: str, author: str, title: str,
                 log.info("  ✓ 图片全部推送成功 %d/%d → [%s]", ok_count, len(images), bot["name"])
             else:
                 log.warning("  ⚠ 图片推送不完整 %d/%d → [%s]", ok_count, len(images), bot["name"])
+        # 翻译
+        if body_zh:
+            url = f"{QQ_API_BASE}/v2/users/{bot['target_openid']}/messages"
+            headers = _bot_headers(token)
+            resp = post(url, json_data={"msg_type": 0, "content": body_zh},
+                        headers=headers)
+            err = resp.get("err_code")
+            tr_ok = err is None or err == 0
+            if not tr_ok:
+                log.warning("翻译推送失败 [%s]: err_code=%s message=%s",
+                            bot["name"], err, resp.get("message", ""))
+            log.info("  %s 翻译 → [%s]", "✓" if tr_ok else "✗", bot["name"])
     return any_ok

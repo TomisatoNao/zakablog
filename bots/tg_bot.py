@@ -13,16 +13,19 @@ def _chunks(lst: list, n: int):
 
 async def _push_async(token: str, chat_id: str, group_name: str,
                       author: str, title: str, blog_url: str,
-                      images: list[str], blog_date: str = "") -> bool:
+                      images: list[str], blog_date: str = "",
+                      body_zh: str = "") -> bool:
     try:
         from telegram import Bot, InputMediaPhoto
         from telegram.constants import ParseMode
         from telegram.error import TimedOut
+        from telegram.request import HTTPXRequest
     except ImportError:
         log.warning("python-telegram-bot 未安装，跳过 Telegram 推送")
         return False
 
-    bot = Bot(token=token, read_timeout=120, connect_timeout=10, write_timeout=60)
+    request = HTTPXRequest(read_timeout=120, connect_timeout=10, write_timeout=60)
+    bot = Bot(token=token, request=request)
     emoji = "🌸" if "樱" in group_name else "☀️" if "日" in group_name else "💜" if "乃" in group_name else "🤖"
 
     date_line = f"<b>时间</b>：{blog_date}\n" if blog_date else ""
@@ -36,6 +39,8 @@ async def _push_async(token: str, chat_id: str, group_name: str,
         f"👉 <a href=\"{blog_url}\">博客链接</a>"
     )
 
+    main_ok = False
+
     # 无图片：纯文字
     if not images:
         for attempt in range(1, MAX_RETRIES + 1):
@@ -43,10 +48,12 @@ async def _push_async(token: str, chat_id: str, group_name: str,
                 await bot.send_message(chat_id=chat_id, text=html_text,
                                        parse_mode=ParseMode.HTML, disable_web_page_preview=True)
                 log.info("  ✓ Telegram 推送 → [%s]", group_name)
-                return True
+                main_ok = True
+                break
             except TimedOut:
                 log.warning("Telegram 推送超时 [%s]（服务端可能已收到），视为成功", group_name)
-                return True
+                main_ok = True
+                break
             except Exception as e:
                 if attempt < MAX_RETRIES:
                     wait = 2 ** attempt
@@ -56,62 +63,72 @@ async def _push_async(token: str, chat_id: str, group_name: str,
                 else:
                     log.warning("  ✗ Telegram 推送失败 [%s]（已重试%d次）: %s",
                                 group_name, MAX_RETRIES, e)
-                    return False
-        return False
 
-    # 有图片：第一张带 HTML 摘要，≤10 张/组
-    batches = list(_chunks(images, 10))
-    ok_count = 0
-    any_explicit_fail = False
-    for bi, batch in enumerate(batches):
-        caption = html_text if bi == 0 else ""
-        media = []
-        for i, url in enumerate(batch):
-            if bi == 0 and i == 0:
-                media.append(InputMediaPhoto(media=url, caption=caption,
-                                             parse_mode=ParseMode.HTML))
-            else:
-                media.append(InputMediaPhoto(media=url))
-        sent = False
-        for attempt in range(1, MAX_RETRIES + 1):
-            try:
-                await bot.send_media_group(chat_id=chat_id, media=media)
-                ok_count += len(batch)
-                sent = True
-                break
-            except TimedOut:
-                log.warning("Telegram 媒体组超时 [%s] 第%d组（服务端可能已收到），视为成功",
-                            group_name, bi + 1)
-                ok_count += len(batch)
-                sent = True
-                break
-            except Exception as e:
-                if attempt < MAX_RETRIES:
-                    wait = 2 ** attempt
-                    log.warning("Telegram 媒体组发送失败 [%s] 第%d组 第%d次: %s，%ds后重试",
-                                group_name, bi + 1, attempt, e, wait)
-                    await asyncio.sleep(wait)
-                else:
-                    log.warning("Telegram 媒体组彻底失败 [%s] 第%d组（已重试%d次）: %s",
-                                group_name, bi + 1, MAX_RETRIES, e)
-        if not sent:
-            any_explicit_fail = True
-
-    total = len(images)
-    if any_explicit_fail and ok_count == 0:
-        log.warning("  ✗ Telegram 推送失败 %d/%d 张 → [%s]", ok_count, total, group_name)
-        return False
-    if total > 10:
-        log.info("  ✓ Telegram 推送 %d/%d 张（%d 组）→ [%s]",
-                 ok_count, total, len(batches), group_name)
     else:
-        log.info("  ✓ Telegram 推送 %d/%d 张 → [%s]", ok_count, total, group_name)
-    return True
+        # 有图片：第一张带 HTML 摘要，≤10 张/组
+        batches = list(_chunks(images, 10))
+        ok_count = 0
+        any_explicit_fail = False
+        for bi, batch in enumerate(batches):
+            caption = html_text if bi == 0 else ""
+            media = []
+            for i, url in enumerate(batch):
+                if bi == 0 and i == 0:
+                    media.append(InputMediaPhoto(media=url, caption=caption,
+                                                 parse_mode=ParseMode.HTML))
+                else:
+                    media.append(InputMediaPhoto(media=url))
+            sent = False
+            for attempt in range(1, MAX_RETRIES + 1):
+                try:
+                    await bot.send_media_group(chat_id=chat_id, media=media)
+                    ok_count += len(batch)
+                    sent = True
+                    break
+                except TimedOut:
+                    log.warning("Telegram 媒体组超时 [%s] 第%d组（服务端可能已收到），视为成功",
+                                group_name, bi + 1)
+                    ok_count += len(batch)
+                    sent = True
+                    break
+                except Exception as e:
+                    if attempt < MAX_RETRIES:
+                        wait = 2 ** attempt
+                        log.warning("Telegram 媒体组发送失败 [%s] 第%d组 第%d次: %s，%ds后重试",
+                                    group_name, bi + 1, attempt, e, wait)
+                        await asyncio.sleep(wait)
+                    else:
+                        log.warning("Telegram 媒体组彻底失败 [%s] 第%d组（已重试%d次）: %s",
+                                    group_name, bi + 1, MAX_RETRIES, e)
+            if not sent:
+                any_explicit_fail = True
+
+        total = len(images)
+        if any_explicit_fail and ok_count == 0:
+            log.warning("  ✗ Telegram 推送失败 %d/%d 张 → [%s]", ok_count, total, group_name)
+            main_ok = False
+        else:
+            if total > 10:
+                log.info("  ✓ Telegram 推送 %d/%d 张（%d 组）→ [%s]",
+                         ok_count, total, len(batches), group_name)
+            else:
+                log.info("  ✓ Telegram 推送 %d/%d 张 → [%s]", ok_count, total, group_name)
+            main_ok = True
+
+    if main_ok and body_zh:
+        try:
+            await bot.send_message(chat_id=chat_id, text=body_zh)
+            log.info("  ✓ 翻译 → [%s]", group_name)
+        except Exception as e:
+            log.warning("Telegram 翻译发送失败 [%s]: %s", group_name, e)
+
+    return main_ok
 
 
 def push_to_group(group_key: str, group_name: str,
                   author: str, title: str, blog_url: str,
-                  images: list[str], blog_date: str = "") -> bool:
+                  images: list[str], blog_date: str = "",
+                  body_zh: str = "") -> bool:
     """推送到对应坂道的 Telegram Bot，返回文字通知是否成功。"""
     if not TG_ENABLED:
         log.debug("Telegram 总开关已关闭")
@@ -131,5 +148,5 @@ def push_to_group(group_key: str, group_name: str,
     log.info("  ▶ Telegram 推送 [%s] ...", group_name)
     return asyncio.run(_push_async(
         cfg["token"], cfg["chat_id"], group_name,
-        author, title, blog_url, images, blog_date
+        author, title, blog_url, images, blog_date, body_zh
     ))
