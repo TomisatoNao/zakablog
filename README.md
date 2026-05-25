@@ -60,11 +60,12 @@ python blog.py
 
 ```bash
 # 先确保 .env 中已填入 APP_ID 和 CLIENT_SECRET
+# 注意：BOT1_TARGET_OPENID 需先填一个占位值（如 "dummy"），否则该 Bot 不会被加载
 pip install httpx websockets
 python tools/get_qq_openid.py
 ```
 
-然后用你的 QQ 私聊机器人发一条消息，终端会打印出你的 openid，填入 `.env` 即可。
+然后用你的 QQ 私聊机器人发一条消息，终端会打印出你的 openid（取 `user_openid` 字段），填入 `.env` 替换占位值即可。
 
 ## 平台开关
 
