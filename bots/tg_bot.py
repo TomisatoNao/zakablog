@@ -27,7 +27,7 @@ def _retry_wait(exc: Exception) -> float:
 async def _push_async(token: str, chat_id: str, group_name: str,
                       author: str, title: str, blog_url: str,
                       images: list[str], blog_date: str = "",
-                      body_zh_future: Future | None = None) -> bool:
+                      body_zh_future: Future | None = None) -> dict:
     try:
         from telegram import Bot, InputMediaPhoto
         from telegram.constants import ParseMode
@@ -52,7 +52,13 @@ async def _push_async(token: str, chat_id: str, group_name: str,
         f"👉 <a href=\"{blog_url}\">博客链接</a>"
     )
 
-    main_ok = False
+    result = {
+        "main_ok": False,
+        "images_ok": 0,
+        "images_total": len(images),
+        "batch_count": 0,
+        "tr_ok": None,
+    }
 
     # 无图片：纯文字
     if not images:
@@ -60,12 +66,11 @@ async def _push_async(token: str, chat_id: str, group_name: str,
             try:
                 await bot.send_message(chat_id=chat_id, text=html_text,
                                        parse_mode=ParseMode.HTML, disable_web_page_preview=True)
-                log.info("  ✓ Telegram 推送 → [%s]", group_name)
-                main_ok = True
+                result["main_ok"] = True
                 break
             except TimedOut:
                 log.warning("Telegram 推送超时 [%s]（服务端可能已收到），视为成功", group_name)
-                main_ok = True
+                result["main_ok"] = True
                 break
             except Exception as e:
                 if attempt < MAX_RETRIES:
@@ -80,6 +85,7 @@ async def _push_async(token: str, chat_id: str, group_name: str,
     else:
         # 有图片：第一张带 HTML 摘要，≤10 张/组
         batches = list(_chunks(images, 10))
+        result["batch_count"] = len(batches)
         ok_count = 0
         any_explicit_fail = False
         for bi, batch in enumerate(batches):
@@ -119,25 +125,20 @@ async def _push_async(token: str, chat_id: str, group_name: str,
                 await asyncio.sleep(2.0)  # 组间间隔，避免 429
 
         total = len(images)
+        result["images_ok"] = ok_count
         if any_explicit_fail and ok_count == 0:
             log.warning("  ✗ Telegram 推送失败 %d/%d 张 → [%s]", ok_count, total, group_name)
-            main_ok = False
         else:
-            if total > 10:
-                log.info("  ✓ Telegram 推送 %d/%d 张（%d 组）→ [%s]",
-                         ok_count, total, len(batches), group_name)
-            else:
-                log.info("  ✓ Telegram 推送 %d/%d 张 → [%s]", ok_count, total, group_name)
-            main_ok = True
+            result["main_ok"] = True
 
     body_zh = ""
-    if main_ok and body_zh_future is not None:
+    if result["main_ok"] and body_zh_future is not None:
         try:
             body_zh = body_zh_future.result()
         except Exception as e:
             log.warning("翻译 Future 异常 [%s]: %s", group_name, e)
 
-    if main_ok and body_zh:
+    if result["main_ok"] and body_zh:
         if images:
             await asyncio.sleep(1.0)  # 图片组和翻译之间稍作停顿
         TELEGRAM_MAX = 4000
@@ -170,36 +171,48 @@ async def _push_async(token: str, chat_id: str, group_name: str,
             except Exception as e:
                 log.warning("Telegram 翻译发送失败 [%s] 第%d/%d段: %s",
                             group_name, idx + 1, len(parts), e)
-        if ok == len(parts):
-            log.info("  ✓ 翻译 → [%s]", group_name)
-        elif ok > 0:
+        result["tr_ok"] = (ok == len(parts))
+        if ok > 0 and ok != len(parts):
             log.warning("  ⚠ 翻译部分成功 [%s]: %d/%d 段", group_name, ok, len(parts))
 
-    return main_ok
+    return result
 
 
 def push_to_group(group_key: str, group_name: str,
                   author: str, title: str, blog_url: str,
                   images: list[str], blog_date: str = "",
-                  body_zh_future: Future | None = None) -> bool:
-    """推送到对应坂道的 Telegram Bot，返回文字通知是否成功。"""
+                  body_zh_future: Future | None = None) -> dict:
+    """推送到对应坂道的 Telegram Bot，返回结果字典。"""
+    skip_result = {
+        "group": group_name,
+        "main_ok": False,
+        "images_ok": 0,
+        "images_total": len(images),
+        "batch_count": 0,
+        "tr_ok": None,
+        "skipped": True,
+        "skip_reason": "",
+    }
+
     if not TG_ENABLED:
-        log.debug("Telegram 总开关已关闭")
-        return False
+        skip_result["skip_reason"] = "TG 总开关已关闭"
+        return skip_result
 
     cfg = TG_GROUPS.get(group_key)
     if not cfg or not cfg.get("enabled"):
-        log.debug("Telegram [%s] 未启用或未配置", group_name)
-        return False
+        skip_result["skip_reason"] = "未启用或未配置"
+        return skip_result
     if not cfg.get("token") or not cfg.get("chat_id"):
-        log.debug("Telegram [%s] token/chat_id 未配置，跳过", group_name)
-        return False
+        skip_result["skip_reason"] = "token/chat_id 未配置"
+        return skip_result
     if author in get_blacklist(tg_group=group_key):
-        log.info("  🚫 Telegram [%s] %s 在黑名单中，跳过", group_name, author)
-        return False
+        skip_result["skip_reason"] = f"{author} 在黑名单中"
+        return skip_result
 
     log.info("  ▶ Telegram 推送 [%s] ...", group_name)
-    return asyncio.run(_push_async(
+    result = asyncio.run(_push_async(
         cfg["token"], cfg["chat_id"], group_name,
         author, title, blog_url, images, blog_date, body_zh_future
     ))
+    result["group"] = group_name
+    return result

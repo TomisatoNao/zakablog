@@ -54,6 +54,52 @@ def _clear_terminal():
         sys.stdout.flush()
 
 
+def _print_push_summary(group_name: str, author: str, title: str,
+                        qq_results: list[dict], tg_result: dict | None,
+                        body_zh: str) -> None:
+    """打印推送结果汇总（所有成功信息集中输出）。"""
+    # 收集非跳过结果以判断是否有实际推送
+    active_qq = [r for r in qq_results if not r.get("skipped")]
+    tg_skipped = tg_result.get("skipped", True) if tg_result else True
+    if not active_qq and tg_skipped and not body_zh:
+        return  # 全部跳过且无翻译，无需汇总
+
+    log.info("  📊 推送完成 | [%s] %s 《%s》", group_name, author, title)
+
+    for r in qq_results:
+        if r.get("skipped"):
+            log.info("    QQ [%s]: ⏭ %s", r["bot"], r.get("skip_reason", ""))
+        else:
+            parts = ["✓" if r["text_ok"] else "✗", "文字"]
+            if r["images_total"] > 0:
+                ok, total = r["images_ok"], r["images_total"]
+                icon = "✓" if ok == total else "⚠"
+                parts.append(f"{icon} 图片({ok}/{total})")
+            if r["tr_ok"] is not None:
+                parts.append("✓ 翻译" if r["tr_ok"] else "✗ 翻译")
+            log.info("    QQ [%s]: %s", r["bot"], "  ".join(parts))
+
+    if tg_result:
+        if tg_skipped:
+            log.info("    TG [%s]: ⏭ %s",
+                     tg_result.get("group", "?"), tg_result.get("skip_reason", ""))
+        else:
+            parts = ["✓" if tg_result["main_ok"] else "✗", "文字"]
+            if tg_result.get("images_total", 0) > 0:
+                ok, total = tg_result["images_ok"], tg_result["images_total"]
+                icon = "✓" if ok == total else "⚠"
+                bc = tg_result.get("batch_count", 1)
+                if bc > 1:
+                    parts.append(f"{icon} 图片({ok}/{total}, {bc}组)")
+                else:
+                    parts.append(f"{icon} 图片({ok}/{total})")
+            if tg_result.get("tr_ok") is not None:
+                parts.append("✓ 翻译" if tg_result["tr_ok"] else "✗ 翻译")
+            log.info("    TG [%s]: %s", tg_result.get("group", "?"), "  ".join(parts))
+
+    if body_zh:
+        log.info("    🌐 翻译 %d 字", len(body_zh))
+
 
 # ── 面板 ─────────────────────────────────────
 def _render_panel(cycle: int, interval: int, is_night: bool,
@@ -211,23 +257,27 @@ def run_monitor(cycle: int, interval: int = 0, is_night: bool = False) -> None:
 
                 pushed_qq = False
                 pushed_tg = False
+                qq_results: list[dict] = []
+                tg_result: dict | None = None
                 for name, f in futures.items():
                     try:
                         result = f.result()
                         if name == "qq":
-                            pushed_qq = result
+                            pushed_qq, qq_results = result
                         elif name == "tg":
-                            pushed_tg = result
+                            tg_result = result
+                            pushed_tg = result.get("main_ok", False) if result else False
                     except Exception as e:
                         log.warning("并行任务异常 [%s]: %s", name, e)
 
+                body_zh = ""
                 if tr_future is not None:
                     try:
-                        body_zh = tr_future.result()
-                        if body_zh:
-                            log.info("  ✓ 翻译完成 (%d 字)", len(body_zh))
+                        body_zh = tr_future.result() or ""
                     except Exception:
                         pass
+
+                _print_push_summary(group_name, author, title, qq_results, tg_result, body_zh)
 
             if pushed_qq or pushed_tg:
                 records[key] = url

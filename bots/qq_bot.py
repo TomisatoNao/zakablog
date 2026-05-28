@@ -106,24 +106,37 @@ def _send_image(token: str, openid: str, image_url: str,
 def _push_to_single_bot(bot: dict, group_key: str, group: str,
                         author: str, title: str, blog_url: str,
                         images: list[str], blog_date: str,
-                        body_zh_future: Future | None) -> bool:
-    """推送到单个 QQ Bot，返回文字通知是否成功。"""
+                        body_zh_future: Future | None) -> dict:
+    """推送到单个 QQ Bot，返回结果字典（成功信息由调用方统一汇总）。"""
+    result = {
+        "bot": bot["name"],
+        "text_ok": False,
+        "images_ok": 0,
+        "images_total": len(images),
+        "tr_ok": None,
+        "skipped": False,
+        "skip_reason": "",
+    }
+
     if not bot["groups"].get(group_key, True):
-        log.info("  ⏭ [%s] 已关闭 %s 推送，跳过", bot["name"], group)
-        return False
+        result["skipped"] = True
+        result["skip_reason"] = f"已关闭 {group} 推送"
+        return result
     if author in get_blacklist(bot_name=bot["name"]):
-        log.info("  🚫 [%s] %s 在黑名单中，跳过", bot["name"], author)
-        return False
+        result["skipped"] = True
+        result["skip_reason"] = f"{author} 在黑名单中"
+        return result
 
     log.info("  ▶ 推送到 [%s] ...", bot["name"])
     token = _get_access_token(bot["app_id"], bot["client_secret"])
     if not token:
         log.warning("  ✗ Token 获取失败，跳过 [%s]", bot["name"])
-        return False
+        result["skipped"] = True
+        result["skip_reason"] = "Token 获取失败"
+        return result
 
-    ok = _send_text(token, bot["target_openid"], group, author, title,
-                    blog_url, len(images), blog_date)
-    log.info("  %s 文字通知 → [%s]", "✓" if ok else "✗", bot["name"])
+    result["text_ok"] = _send_text(token, bot["target_openid"], group, author, title,
+                                   blog_url, len(images), blog_date)
 
     ok_count = 0
     for idx, img_url in enumerate(images, 1):
@@ -132,11 +145,9 @@ def _push_to_single_bot(bot: dict, group_key: str, group: str,
         else:
             log.warning("图片推送失败 [%s] 第%d张: %s", bot["name"], idx, img_url)
         time.sleep(IMAGE_SEND_DELAY)
-    if images:
-        if ok_count == len(images):
-            log.info("  ✓ 图片全部推送成功 %d/%d → [%s]", ok_count, len(images), bot["name"])
-        else:
-            log.warning("  ⚠ 图片推送不完整 %d/%d → [%s]", ok_count, len(images), bot["name"])
+    result["images_ok"] = ok_count
+    if images and ok_count != len(images):
+        log.warning("  ⚠ 图片推送不完整 %d/%d → [%s]", ok_count, len(images), bot["name"])
 
     # 翻译文本 — 等待 Future 就绪
     body_zh = ""
@@ -156,24 +167,24 @@ def _push_to_single_bot(bot: dict, group_key: str, group: str,
         if not tr_ok:
             log.warning("翻译推送失败 [%s]: err_code=%s message=%s",
                         bot["name"], err, resp.get("message", ""))
-        log.info("  %s 翻译 → [%s]", "✓" if tr_ok else "✗", bot["name"])
+        result["tr_ok"] = tr_ok
 
-    return ok
+    return result
 
 
 def push_to_all(group_key: str, group: str, author: str, title: str,
                 blog_url: str, images: list[str], blog_date: str = "",
-                body_zh_future: Future | None = None) -> bool:
-    """并行推送到所有 QQ Bot，返回是否有至少一个 Bot 文字通知成功。"""
+                body_zh_future: Future | None = None) -> tuple[bool, list[dict]]:
+    """并行推送到所有 QQ Bot，返回 (是否有至少一个 Bot 文字通知成功, 各 Bot 结果列表)。"""
     from config import QQ_ENABLED
     if not QQ_ENABLED:
         log.info("QQ Bot 总开关已关闭，跳过推送")
-        return False
+        return False, []
 
     if not BOTS:
-        return False
+        return False, []
 
-    any_ok = False
+    results: list[dict] = []
     with ThreadPoolExecutor(max_workers=len(BOTS)) as pool:
         futures = {
             pool.submit(_push_to_single_bot, bot, group_key, group,
@@ -184,9 +195,21 @@ def push_to_all(group_key: str, group: str, author: str, title: str,
         for f in as_completed(futures):
             bot = futures[f]
             try:
-                if f.result():
-                    any_ok = True
+                results.append(f.result())
             except Exception as e:
                 log.warning("  ✗ [%s] 推送异常: %s", bot["name"], e)
+                results.append({
+                    "bot": bot["name"],
+                    "text_ok": False,
+                    "images_ok": 0,
+                    "images_total": len(images),
+                    "tr_ok": None,
+                    "skipped": True,
+                    "skip_reason": f"异常: {e}",
+                })
 
-    return any_ok
+    # 按 BOTS 配置顺序排序
+    bot_order = {b["name"]: i for i, b in enumerate(BOTS)}
+    results.sort(key=lambda r: bot_order.get(r["bot"], 999))
+    any_ok = any(r["text_ok"] for r in results)
+    return any_ok, results
