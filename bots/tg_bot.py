@@ -1,6 +1,7 @@
 """Telegram Bot：文本/媒体组推送，一个坂道一个机器人。"""
 import asyncio
 import logging
+from concurrent.futures import Future
 from config import TG_ENABLED, TG_GROUPS, get_blacklist, MAX_RETRIES
 
 log = logging.getLogger(__name__)
@@ -11,14 +12,26 @@ def _chunks(lst: list, n: int):
         yield lst[i:i + n]
 
 
+def _retry_wait(exc: Exception) -> float:
+    """从异常中提取 retry_after（含少量余量），无法提取则返回 0 表示调用方自定。"""
+    retry_attr = getattr(exc, 'retry_after', None)
+    if retry_attr is not None:
+        return float(retry_attr) + 0.5
+    import re
+    m = re.search(r'Retry in (\d+(?:\.\d+)?)', str(exc))
+    if m:
+        return float(m.group(1)) + 0.5
+    return 0.0
+
+
 async def _push_async(token: str, chat_id: str, group_name: str,
                       author: str, title: str, blog_url: str,
                       images: list[str], blog_date: str = "",
-                      body_zh: str = "") -> bool:
+                      body_zh_future: Future | None = None) -> bool:
     try:
         from telegram import Bot, InputMediaPhoto
         from telegram.constants import ParseMode
-        from telegram.error import TimedOut
+        from telegram.error import RetryAfter, TimedOut
         from telegram.request import HTTPXRequest
     except ImportError:
         log.warning("python-telegram-bot 未安装，跳过 Telegram 推送")
@@ -56,8 +69,8 @@ async def _push_async(token: str, chat_id: str, group_name: str,
                 break
             except Exception as e:
                 if attempt < MAX_RETRIES:
-                    wait = 2 ** attempt
-                    log.warning("Telegram 推送失败 [%s] 第%d次: %s，%ds后重试",
+                    wait = _retry_wait(e) or (2 ** attempt)
+                    log.warning("Telegram 推送失败 [%s] 第%d次: %s，%.1fs后重试",
                                 group_name, attempt, e, wait)
                     await asyncio.sleep(wait)
                 else:
@@ -93,8 +106,8 @@ async def _push_async(token: str, chat_id: str, group_name: str,
                     break
                 except Exception as e:
                     if attempt < MAX_RETRIES:
-                        wait = 2 ** attempt
-                        log.warning("Telegram 媒体组发送失败 [%s] 第%d组 第%d次: %s，%ds后重试",
+                        wait = _retry_wait(e) or (2 ** attempt)
+                        log.warning("Telegram 媒体组发送失败 [%s] 第%d组 第%d次: %s，%.1fs后重试",
                                     group_name, bi + 1, attempt, e, wait)
                         await asyncio.sleep(wait)
                     else:
@@ -102,6 +115,8 @@ async def _push_async(token: str, chat_id: str, group_name: str,
                                     group_name, bi + 1, MAX_RETRIES, e)
             if not sent:
                 any_explicit_fail = True
+            elif bi < len(batches) - 1:
+                await asyncio.sleep(2.0)  # 组间间隔，避免 429
 
         total = len(images)
         if any_explicit_fail and ok_count == 0:
@@ -115,12 +130,50 @@ async def _push_async(token: str, chat_id: str, group_name: str,
                 log.info("  ✓ Telegram 推送 %d/%d 张 → [%s]", ok_count, total, group_name)
             main_ok = True
 
-    if main_ok and body_zh:
+    body_zh = ""
+    if main_ok and body_zh_future is not None:
         try:
-            await bot.send_message(chat_id=chat_id, text=body_zh)
-            log.info("  ✓ 翻译 → [%s]", group_name)
+            body_zh = body_zh_future.result()
         except Exception as e:
-            log.warning("Telegram 翻译发送失败 [%s]: %s", group_name, e)
+            log.warning("翻译 Future 异常 [%s]: %s", group_name, e)
+
+    if main_ok and body_zh:
+        if images:
+            await asyncio.sleep(1.0)  # 图片组和翻译之间稍作停顿
+        TELEGRAM_MAX = 4000
+        if len(body_zh) <= TELEGRAM_MAX:
+            parts = [body_zh]
+        else:
+            paras = [p.strip() for p in body_zh.split("\n\n") if p.strip()]
+            parts = []
+            buf = ""
+            for p in paras:
+                if len(p) > TELEGRAM_MAX:
+                    if buf:
+                        parts.append(buf.strip())
+                        buf = ""
+                    for i in range(0, len(p), TELEGRAM_MAX):
+                        parts.append(p[i:i + TELEGRAM_MAX])
+                elif buf and len(buf) + len(p) + 2 > TELEGRAM_MAX:
+                    parts.append(buf.strip())
+                    buf = p
+                else:
+                    buf = (buf + "\n\n" + p) if buf else p
+            if buf:
+                parts.append(buf.strip())
+
+        ok = 0
+        for idx, part in enumerate(parts):
+            try:
+                await bot.send_message(chat_id=chat_id, text=part)
+                ok += 1
+            except Exception as e:
+                log.warning("Telegram 翻译发送失败 [%s] 第%d/%d段: %s",
+                            group_name, idx + 1, len(parts), e)
+        if ok == len(parts):
+            log.info("  ✓ 翻译 → [%s]", group_name)
+        elif ok > 0:
+            log.warning("  ⚠ 翻译部分成功 [%s]: %d/%d 段", group_name, ok, len(parts))
 
     return main_ok
 
@@ -128,7 +181,7 @@ async def _push_async(token: str, chat_id: str, group_name: str,
 def push_to_group(group_key: str, group_name: str,
                   author: str, title: str, blog_url: str,
                   images: list[str], blog_date: str = "",
-                  body_zh: str = "") -> bool:
+                  body_zh_future: Future | None = None) -> bool:
     """推送到对应坂道的 Telegram Bot，返回文字通知是否成功。"""
     if not TG_ENABLED:
         log.debug("Telegram 总开关已关闭")
@@ -148,5 +201,5 @@ def push_to_group(group_key: str, group_name: str,
     log.info("  ▶ Telegram 推送 [%s] ...", group_name)
     return asyncio.run(_push_async(
         cfg["token"], cfg["chat_id"], group_name,
-        author, title, blog_url, images, blog_date, body_zh
+        author, title, blog_url, images, blog_date, body_zh_future
     ))

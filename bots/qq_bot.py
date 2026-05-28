@@ -1,24 +1,29 @@
 """QQ Bot：Token 缓存、文字/图片推送。"""
 import time
+import threading
 import logging
-from config import BOTS, get_blacklist, QQ_API_BASE, IMAGE_SEND_DELAY, BOT_SWITCH_DELAY
+from concurrent.futures import ThreadPoolExecutor, Future, as_completed
+from config import BOTS, get_blacklist, QQ_API_BASE, IMAGE_SEND_DELAY
 from core.network import post
 
 log = logging.getLogger(__name__)
 
 _token_cache: dict[str, tuple[str, float]] = {}
+_token_lock = threading.Lock()
 
 
 def _get_access_token(app_id: str, client_secret: str) -> str | None:
-    cached = _token_cache.get(app_id)
-    if cached and time.time() < cached[1] - 60:
-        return cached[0]
+    with _token_lock:
+        cached = _token_cache.get(app_id)
+        if cached and time.time() < cached[1] - 60:
+            return cached[0]
     data = post("https://bots.qq.com/app/getAppAccessToken",
                 json_data={"appId": app_id, "clientSecret": client_secret})
     token = data.get("access_token")
     expires = int(data.get("expires_in", 7200))
     if token:
-        _token_cache[app_id] = (token, time.time() + expires)
+        with _token_lock:
+            _token_cache[app_id] = (token, time.time() + expires)
         log.debug("Token 已刷新: appId=%s", app_id)
     return token
 
@@ -98,56 +103,90 @@ def _send_image(token: str, openid: str, image_url: str,
     return False
 
 
+def _push_to_single_bot(bot: dict, group_key: str, group: str,
+                        author: str, title: str, blog_url: str,
+                        images: list[str], blog_date: str,
+                        body_zh_future: Future | None) -> bool:
+    """推送到单个 QQ Bot，返回文字通知是否成功。"""
+    if not bot["groups"].get(group_key, True):
+        log.info("  ⏭ [%s] 已关闭 %s 推送，跳过", bot["name"], group)
+        return False
+    if author in get_blacklist(bot_name=bot["name"]):
+        log.info("  🚫 [%s] %s 在黑名单中，跳过", bot["name"], author)
+        return False
+
+    log.info("  ▶ 推送到 [%s] ...", bot["name"])
+    token = _get_access_token(bot["app_id"], bot["client_secret"])
+    if not token:
+        log.warning("  ✗ Token 获取失败，跳过 [%s]", bot["name"])
+        return False
+
+    ok = _send_text(token, bot["target_openid"], group, author, title,
+                    blog_url, len(images), blog_date)
+    log.info("  %s 文字通知 → [%s]", "✓" if ok else "✗", bot["name"])
+
+    ok_count = 0
+    for idx, img_url in enumerate(images, 1):
+        if _send_image(token, bot["target_openid"], img_url):
+            ok_count += 1
+        else:
+            log.warning("图片推送失败 [%s] 第%d张: %s", bot["name"], idx, img_url)
+        time.sleep(IMAGE_SEND_DELAY)
+    if images:
+        if ok_count == len(images):
+            log.info("  ✓ 图片全部推送成功 %d/%d → [%s]", ok_count, len(images), bot["name"])
+        else:
+            log.warning("  ⚠ 图片推送不完整 %d/%d → [%s]", ok_count, len(images), bot["name"])
+
+    # 翻译文本 — 等待 Future 就绪
+    body_zh = ""
+    if body_zh_future is not None:
+        try:
+            body_zh = body_zh_future.result()
+        except Exception as e:
+            log.warning("翻译 Future 异常 [%s]: %s", bot["name"], e)
+
+    if body_zh:
+        url = f"{QQ_API_BASE}/v2/users/{bot['target_openid']}/messages"
+        headers = _bot_headers(token)
+        resp = post(url, json_data={"msg_type": 0, "content": body_zh},
+                    headers=headers)
+        err = resp.get("err_code")
+        tr_ok = err is None or err == 0
+        if not tr_ok:
+            log.warning("翻译推送失败 [%s]: err_code=%s message=%s",
+                        bot["name"], err, resp.get("message", ""))
+        log.info("  %s 翻译 → [%s]", "✓" if tr_ok else "✗", bot["name"])
+
+    return ok
+
+
 def push_to_all(group_key: str, group: str, author: str, title: str,
                 blog_url: str, images: list[str], blog_date: str = "",
-                body_zh: str = "") -> bool:
-    """推送到所有 Bot，返回是否有至少一个 Bot 文字通知成功。"""
+                body_zh_future: Future | None = None) -> bool:
+    """并行推送到所有 QQ Bot，返回是否有至少一个 Bot 文字通知成功。"""
     from config import QQ_ENABLED
     if not QQ_ENABLED:
         log.info("QQ Bot 总开关已关闭，跳过推送")
         return False
+
+    if not BOTS:
+        return False
+
     any_ok = False
-    for bi, bot in enumerate(BOTS):
-        if not bot["groups"].get(group_key, True):
-            log.info("  ⏭ [%s] 已关闭 %s 推送，跳过", bot["name"], group)
-            continue
-        if author in get_blacklist(bot_name=bot["name"]):
-            log.info("  🚫 [%s] %s 在黑名单中，跳过", bot["name"], author)
-            continue
-        if bi > 0:
-            time.sleep(BOT_SWITCH_DELAY)
-        log.info("  ▶ 推送到 [%s] ...", bot["name"])
-        token = _get_access_token(bot["app_id"], bot["client_secret"])
-        if not token:
-            log.warning("  ✗ Token 获取失败，跳过 [%s]", bot["name"])
-            continue
-        ok = _send_text(token, bot["target_openid"], group, author, title,
-                        blog_url, len(images), blog_date)
-        log.info("  %s 文字通知 → [%s]", "✓" if ok else "✗", bot["name"])
-        if ok:
-            any_ok = True
-        ok_count = 0
-        for idx, img_url in enumerate(images, 1):
-            if _send_image(token, bot["target_openid"], img_url):
-                ok_count += 1
-            else:
-                log.warning("图片推送失败 [%s] 第%d张: %s", bot["name"], idx, img_url)
-            time.sleep(IMAGE_SEND_DELAY)
-        if images:
-            if ok_count == len(images):
-                log.info("  ✓ 图片全部推送成功 %d/%d → [%s]", ok_count, len(images), bot["name"])
-            else:
-                log.warning("  ⚠ 图片推送不完整 %d/%d → [%s]", ok_count, len(images), bot["name"])
-        # 翻译
-        if body_zh:
-            url = f"{QQ_API_BASE}/v2/users/{bot['target_openid']}/messages"
-            headers = _bot_headers(token)
-            resp = post(url, json_data={"msg_type": 0, "content": body_zh},
-                        headers=headers)
-            err = resp.get("err_code")
-            tr_ok = err is None or err == 0
-            if not tr_ok:
-                log.warning("翻译推送失败 [%s]: err_code=%s message=%s",
-                            bot["name"], err, resp.get("message", ""))
-            log.info("  %s 翻译 → [%s]", "✓" if tr_ok else "✗", bot["name"])
+    with ThreadPoolExecutor(max_workers=len(BOTS)) as pool:
+        futures = {
+            pool.submit(_push_to_single_bot, bot, group_key, group,
+                       author, title, blog_url, images, blog_date,
+                       body_zh_future): bot
+            for bot in BOTS
+        }
+        for f in as_completed(futures):
+            bot = futures[f]
+            try:
+                if f.result():
+                    any_ok = True
+            except Exception as e:
+                log.warning("  ✗ [%s] 推送异常: %s", bot["name"], e)
+
     return any_ok

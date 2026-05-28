@@ -8,7 +8,7 @@ log = logging.getLogger(__name__)
 
 API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 PROMPT = (
-    "将以下日文博客翻译成中文。要求："
+    "将以下日文博客翻译成简体中文。要求："
     "保持原文的语气和风格，人名保留日文原文不翻译，"
     "只输出译文，不要添加任何解释。\n\n"
 )

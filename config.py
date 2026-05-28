@@ -141,10 +141,11 @@ TRANSLATE_ENABLED = os.getenv("TRANSLATE_ENABLED", "false").lower() == "true"
 GEMINI_API_KEY    = os.getenv("GEMINI_API_KEY", "").strip()
 
 GEMINI_MODELS: list[dict] = [
+    {"name": "gemini-3.5-flash",      "rpm": 10},
     {"name": "gemini-3.1-flash-lite", "rpm": 15},
+    {"name": "gemini-2.5-pro",        "rpm": 5},
     {"name": "gemini-2.5-flash",      "rpm": 10},
     {"name": "gemini-2.5-flash-lite", "rpm": 15},
-    {"name": "gemini-2.5-pro",        "rpm": 5},
     {"name": "gemini-2.0-flash",      "rpm": 10},
 ]
 

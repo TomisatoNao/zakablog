@@ -3,11 +3,13 @@ import sys
 import time
 import random
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from config import (
     RESET, BOLD, DIM, C_TIME, C_INFO, C_WARN, C_ERR, C_NEW, C_SLEEP,
     USE_COLOR, BOTS, BLACKLIST, get_blacklist, QQ_ENABLED, TG_ENABLED, TG_GROUPS,
-    TRANSLATE_ENABLED, DAY_MIN, DAY_MAX, NIGHT_MIN, NIGHT_MAX, JST,
+    TRANSLATE_ENABLED, GEMINI_API_KEY, GEMINI_MODELS,
+    DAY_MIN, DAY_MAX, NIGHT_MIN, NIGHT_MAX, JST,
 )
 from sources import hinatazaka, nogizaka, sakurazaka
 from core.storage import load_records, save_records, download_images, check_and_cleanup
@@ -186,21 +188,47 @@ def run_monitor(cycle: int, interval: int = 0, is_night: bool = False) -> None:
             elif not need_detail:
                 body = post.get("body", "")
 
-            if images:
-                download_images(group_name, author, title, images)
-
-            body_zh = ""
+            # 全部任务同时启动：下载 + 翻译 + QQ 推送 + TG 推送
+            tr_future = None
+            max_workers = (1 if images else 0) + len(BOTS) + 1  # dl + QQ bots + TG
             if TRANSLATE_ENABLED and body:
-                log.info("  🌐 翻译中...")
-                body_zh = translate(body)
-                if body_zh:
-                    log.info("  ✓ 翻译完成 (%d 字)", len(body_zh))
+                max_workers += 1  # translate
 
-            pushed_qq = push_to_all(key, group_name, author, title, url, images, blog_date,
-                                    body_zh)
-            pushed_tg = tg_bot.push_to_group(
-                key, group_name, author, title, url, images, blog_date, body_zh
-            )
+            with ThreadPoolExecutor(max_workers=max_workers) as pool:
+                futures: dict[str, object] = {}
+
+                if images:
+                    futures["dl"] = pool.submit(download_images, group_name, author, title, images)
+
+                if TRANSLATE_ENABLED and body:
+                    log.info("  🌐 翻译中...")
+                    tr_future = pool.submit(translate, body)
+
+                futures["qq"] = pool.submit(push_to_all, key, group_name, author, title, url,
+                                            images, blog_date, tr_future)
+                futures["tg"] = pool.submit(tg_bot.push_to_group, key, group_name, author, title, url,
+                                            images, blog_date, tr_future)
+
+                pushed_qq = False
+                pushed_tg = False
+                for name, f in futures.items():
+                    try:
+                        result = f.result()
+                        if name == "qq":
+                            pushed_qq = result
+                        elif name == "tg":
+                            pushed_tg = result
+                    except Exception as e:
+                        log.warning("并行任务异常 [%s]: %s", name, e)
+
+                if tr_future is not None:
+                    try:
+                        body_zh = tr_future.result()
+                        if body_zh:
+                            log.info("  ✓ 翻译完成 (%d 字)", len(body_zh))
+                    except Exception:
+                        pass
+
             if pushed_qq or pushed_tg:
                 records[key] = url
                 save_records(records)
@@ -222,6 +250,16 @@ def main() -> None:
         log.warning("未配置任何 Bot（请设置 BOT1_CLIENT_SECRET 等环境变量），仅做本地监控。")
     log.info("监控服务已启动  日间:%d~%ds  夜间:%d~%ds",
              DAY_MIN, DAY_MAX, NIGHT_MIN, NIGHT_MAX)
+    # Gemini 翻译状态
+    if not TRANSLATE_ENABLED:
+        log.info("Gemini 翻译: ✗ 总开关已关闭")
+    elif not GEMINI_API_KEY:
+        log.warning("Gemini 翻译: ✗ API Key 未配置，翻译不可用")
+    elif not GEMINI_MODELS:
+        log.warning("Gemini 翻译: ✗ 模型池为空，翻译不可用")
+    else:
+        model_names = [m["name"] for m in GEMINI_MODELS]
+        log.info("Gemini 翻译: ✓ 已启用 | API Key: 已配置 | 模型池: %s", ", ".join(model_names))
     # 黑名单摘要
     parts = [f"global={len(BLACKLIST.get('global', set()))}"]
     for i in range(1, 5):
