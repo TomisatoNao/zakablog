@@ -104,8 +104,8 @@ def _send_image(token: str, openid: str, image_url: str,
     return False
 
 
-def _fmt_translation_qq(text: str) -> str:
-    """中日参照文本 → QQ Markdown：中文段落粗体、日文段落斜体，段内去空行 + * 转义。"""
+def _fmt_translation_qq(text: str, images: list[str] | None = None) -> str:
+    """中日参照文本 → QQ Markdown：中文段落粗体、日文段落斜体，段内去空行 + markdown 转义 + 图片嵌入。"""
     blocks = []
     current_type = None
     current_lines: list[str] = []
@@ -144,7 +144,18 @@ def _fmt_translation_qq(text: str) -> str:
     for i in range(0, len(blocks), 2):
         pair = blocks[i:i+2]
         result.append('\n'.join(pair))
-    return '\n​\n'.join(result)
+    result_text = '\n​\n'.join(result)
+
+    # 将 【图片N】 占位符替换为 QQ markdown 图片
+    if images:
+        def _img_url(m):
+            idx = int(m.group(1)) - 1
+            if 0 <= idx < len(images):
+                return f'![📷]({images[idx]})'
+            return m.group(0)
+        result_text = re.sub(r'【图片(\d+)】', _img_url, result_text)
+
+    return result_text
 
 
 def _push_to_single_bot(bot: dict, group_key: str, group: str,
@@ -182,16 +193,8 @@ def _push_to_single_bot(bot: dict, group_key: str, group: str,
     result["text_ok"] = _send_text(token, bot["target_openid"], group, author, title,
                                    blog_url, len(images), blog_date)
 
-    ok_count = 0
-    for idx, img_url in enumerate(images, 1):
-        if _send_image(token, bot["target_openid"], img_url):
-            ok_count += 1
-        else:
-            log.warning("图片推送失败 [%s] 第%d张: %s", bot["name"], idx, img_url)
-        time.sleep(IMAGE_SEND_DELAY)
-    result["images_ok"] = ok_count
-    if images and ok_count != len(images):
-        log.warning("  ⚠ 图片推送不完整 %d/%d → [%s]", ok_count, len(images), bot["name"])
+    # 图片已通过 markdown 翻译正文内嵌，不再单独发送
+    result["images_ok"] = 0
 
     # 翻译文本 — 等待 Future 就绪
     body_zh = ""
@@ -204,7 +207,7 @@ def _push_to_single_bot(bot: dict, group_key: str, group: str,
     if body_zh:
         url = f"{QQ_API_BASE}/v2/users/{bot['target_openid']}/messages"
         headers = _bot_headers(token)
-        md_body = _fmt_translation_qq(body_zh)
+        md_body = _fmt_translation_qq(body_zh, images)
         resp = post(url, json_data={"msg_type": 2, "markdown": {"content": md_body}},
                     headers=headers)
         err = resp.get("err_code")
