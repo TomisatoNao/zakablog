@@ -7,7 +7,7 @@
 - 同时监控三个坂道团体（日向坂46、乃木坂46、樱坂46）的官方博客
 - 检测到新博客时自动下载全部图片到本地
 - 通过 QQ Bot / Telegram Bot 双平台推送通知和图片
-- Gemini AI 日→中翻译博客正文（多模型池自动降级）
+- Gemini AI 日→中翻译博客正文，中日参照逐段对照输出（多模型池自动降级）
 - 自适应巡检频率：日间 2.5~3.5 分钟，夜间 27.5~32.5 分钟（JST）
 - 终端彩色状态面板，实时展示各坂道最新博客
 - 日志自动轮转（10MB × 5 个备份）
@@ -112,14 +112,23 @@ python tools/get_qq_openid.py
 
 ### 翻译（Gemini API）
 
-通过 Gemini 免费 API（1500 次/天）将博客正文从日语翻译为中文，翻译结果作为独立消息推送到各平台。
+通过 Gemini 免费 API（1500 次/天）将博客正文翻译为中文，以**中日参照格式**逐段对照输出（中文译文在前、日文原文在后），方便读者对照阅读。
+
+翻译结果作为独立消息推送到各平台，并根据平台特性应用富文本样式：
+
+| 平台 | 格式 | 中文段落 | 日文段落 |
+|------|------|----------|----------|
+| QQ Bot | Markdown（`msg_type: 2`） | **粗体** | *斜体* |
+| Telegram | HTML（`ParseMode.HTML`） | `<b>粗体</b>` | `<i>斜体</i>` |
+
+两个平台在富文本推送失败时均自动回退为纯文本，保证消息可达。
 
 | 变量 | 说明 | 必填 |
 |---|---|---|
 | `TRANSLATE_ENABLED` | 翻译总开关（默认 false） | 否 |
 | `GEMINI_API_KEY` | Gemini API Key，从 [Google AI Studio](https://aistudio.google.com/apikey) 获取 | 按需 |
 
-翻译使用多模型池按优先级自动降级：`gemini-3.1-flash-lite` → `gemini-2.5-flash` → `gemini-2.5-flash-lite` → `gemini-2.5-pro` → `gemini-2.0-flash`，每个模型有独立的 RPM 冷却。
+翻译使用多模型池按优先级自动降级：`gemini-3.5-flash` → `gemini-3.1-flash-lite` → `gemini-2.5-pro` → `gemini-2.5-flash` → `gemini-2.5-flash-lite` → `gemini-2.0-flash`，每个模型有独立的 RPM 冷却。
 
 ## 配置说明
 
@@ -170,7 +179,7 @@ zakablog/
 ├── core/                   # 共享工具模块
 │   ├── network.py          #   HTTP 请求（GET/POST）与 JSONP 解析
 │   ├── storage.py          #   状态持久化、图片下载与清理
-│   └── translator.py       #   Gemini 日→中翻译（多模型池 + RPM 冷却）
+│   └── translator.py       #   Gemini 日→中翻译（中日参照逐段输出 + 多模型池 RPM 冷却）
 ├── bots/                   # 通知推送模块
 │   ├── qq_bot.py           #   QQ Bot：Token 缓存、文字/图片推送
 │   └── tg_bot.py           #   Telegram Bot：文本/媒体组推送
