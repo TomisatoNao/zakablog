@@ -128,7 +128,7 @@ python tools/get_qq_openid.py
 | `TRANSLATE_ENABLED` | 翻译总开关（默认 false） | 否 |
 | `GEMINI_API_KEY` | Gemini API Key，从 [Google AI Studio](https://aistudio.google.com/apikey) 获取 | 按需 |
 
-翻译使用多模型池按优先级自动降级：`gemini-3.5-flash` → `gemini-3.1-flash-lite` → `gemini-2.5-pro` → `gemini-2.5-flash` → `gemini-2.5-flash-lite` → `gemini-2.0-flash`，每个模型有独立的 RPM 冷却。
+翻译使用多模型池按优先级自动降级：`gemini-3.5-flash` → `gemini-3.1-flash-lite` → `gemini-3-flash-preview` → `gemini-flash-lite-latest` → `gemini-2.5-flash` → `gemini-2.5-flash-lite` → `gemini-2.5-pro`，每个模型有独立的 RPM 冷却。
 
 ## 配置说明
 
