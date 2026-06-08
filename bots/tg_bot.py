@@ -1,6 +1,8 @@
 """Telegram Bot：文本/媒体组推送，一个坂道一个机器人。"""
 import asyncio
+import html as _html
 import logging
+import re
 from concurrent.futures import Future
 from config import TG_ENABLED, TG_GROUPS, get_blacklist, MAX_RETRIES
 
@@ -22,6 +24,35 @@ def _retry_wait(exc: Exception) -> float:
     if m:
         return float(m.group(1)) + 0.5
     return 0.0
+
+
+def _fmt_translation_tg(text: str) -> str:
+    """中日参照文本 → Telegram HTML：中文段落粗体、日文段落斜体，移除【中文】/【原文】标签。"""
+    blocks = []
+    current_type = None
+    current_lines: list[str] = []
+
+    for line in text.split('\n'):
+        if line == '【中文】':
+            if current_type and current_lines:
+                content = _html.escape('\n'.join(current_lines).strip())
+                blocks.append(f'<b>{content}</b>' if current_type == 'zh' else f'<i>{content}</i>')
+            current_type = 'zh'
+            current_lines = []
+        elif line == '【原文】':
+            if current_type and current_lines:
+                content = _html.escape('\n'.join(current_lines).strip())
+                blocks.append(f'<b>{content}</b>' if current_type == 'zh' else f'<i>{content}</i>')
+            current_type = 'ja'
+            current_lines = []
+        else:
+            current_lines.append(line)
+
+    if current_type and current_lines:
+        content = _html.escape('\n'.join(current_lines).strip())
+        blocks.append(f'<b>{content}</b>' if current_type == 'zh' else f'<i>{content}</i>')
+
+    return '\n\n'.join(blocks)
 
 
 async def _push_async(token: str, chat_id: str, group_name: str,
@@ -142,10 +173,12 @@ async def _push_async(token: str, chat_id: str, group_name: str,
         if images:
             await asyncio.sleep(1.0)  # 图片组和翻译之间稍作停顿
         TELEGRAM_MAX = 4000
-        if len(body_zh) <= TELEGRAM_MAX:
-            parts = [body_zh]
+        body_fmt = _fmt_translation_tg(body_zh)
+        if len(body_fmt) <= TELEGRAM_MAX:
+            parts = [body_fmt]
         else:
-            paras = [p.strip() for p in body_zh.split("\n\n") if p.strip()]
+            # 按双空行分段，保持中日对照的段落完整性
+            paras = [p.strip() for p in body_fmt.split("\n\n") if p.strip()]
             parts = []
             buf = ""
             for p in paras:
@@ -165,12 +198,28 @@ async def _push_async(token: str, chat_id: str, group_name: str,
 
         ok = 0
         for idx, part in enumerate(parts):
-            try:
-                await bot.send_message(chat_id=chat_id, text=part)
-                ok += 1
-            except Exception as e:
-                log.warning("Telegram 翻译发送失败 [%s] 第%d/%d段: %s",
-                            group_name, idx + 1, len(parts), e)
+            for attempt in range(1, MAX_RETRIES + 1):
+                try:
+                    await bot.send_message(chat_id=chat_id, text=part,
+                                          parse_mode=ParseMode.HTML)
+                    ok += 1
+                    break
+                except Exception as e:
+                    if attempt < MAX_RETRIES:
+                        wait = _retry_wait(e) or (2 ** attempt)
+                        log.warning("Telegram 翻译发送失败 [%s] 第%d/%d段 第%d次: %s，%.1fs后重试",
+                                    group_name, idx + 1, len(parts), attempt, e, wait)
+                        await asyncio.sleep(wait)
+                    else:
+                        # HTML 模式下失败，回退到纯文本
+                        try:
+                            await bot.send_message(chat_id=chat_id, text=body_zh)
+                            ok += 1
+                            log.info("Telegram 翻译 [%s] 第%d段 HTML→纯文本回退成功",
+                                     group_name, idx + 1)
+                        except Exception as e2:
+                            log.warning("Telegram 翻译发送彻底失败 [%s] 第%d/%d段: %s",
+                                        group_name, idx + 1, len(parts), e2)
         result["tr_ok"] = (ok == len(parts))
         if ok > 0 and ok != len(parts):
             log.warning("  ⚠ 翻译部分成功 [%s]: %d/%d 段", group_name, ok, len(parts))

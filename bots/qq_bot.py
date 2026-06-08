@@ -1,4 +1,5 @@
 """QQ Bot：Token 缓存、文字/图片推送。"""
+import re
 import time
 import threading
 import logging
@@ -103,6 +104,35 @@ def _send_image(token: str, openid: str, image_url: str,
     return False
 
 
+def _fmt_translation_qq(text: str) -> str:
+    """中日参照文本 → QQ Markdown：中文段落粗体、日文段落斜体，移除【中文】/【原文】标签。"""
+    blocks = []
+    current_type = None
+    current_lines: list[str] = []
+
+    for line in text.split('\n'):
+        if line == '【中文】':
+            if current_type and current_lines:
+                content = '\n'.join(current_lines).strip()
+                blocks.append(f'**{content}**' if current_type == 'zh' else f'*{content}*')
+            current_type = 'zh'
+            current_lines = []
+        elif line == '【原文】':
+            if current_type and current_lines:
+                content = '\n'.join(current_lines).strip()
+                blocks.append(f'**{content}**' if current_type == 'zh' else f'*{content}*')
+            current_type = 'ja'
+            current_lines = []
+        else:
+            current_lines.append(line)
+
+    if current_type and current_lines:
+        content = '\n'.join(current_lines).strip()
+        blocks.append(f'**{content}**' if current_type == 'zh' else f'*{content}*')
+
+    return '\n\n'.join(blocks)
+
+
 def _push_to_single_bot(bot: dict, group_key: str, group: str,
                         author: str, title: str, blog_url: str,
                         images: list[str], blog_date: str,
@@ -160,12 +190,19 @@ def _push_to_single_bot(bot: dict, group_key: str, group: str,
     if body_zh:
         url = f"{QQ_API_BASE}/v2/users/{bot['target_openid']}/messages"
         headers = _bot_headers(token)
-        resp = post(url, json_data={"msg_type": 0, "content": body_zh},
+        md_body = _fmt_translation_qq(body_zh)
+        resp = post(url, json_data={"msg_type": 2, "markdown": {"content": md_body}},
                     headers=headers)
         err = resp.get("err_code")
+        if err is not None and err != 0:
+            log.warning("翻译 Markdown 推送失败 [%s]: err_code=%s message=%s，回退纯文本",
+                        bot["name"], err, resp.get("message", ""))
+            resp = post(url, json_data={"msg_type": 0, "content": body_zh},
+                        headers=headers)
+            err = resp.get("err_code")
         tr_ok = err is None or err == 0
         if not tr_ok:
-            log.warning("翻译推送失败 [%s]: err_code=%s message=%s",
+            log.warning("翻译推送彻底失败 [%s]: err_code=%s message=%s",
                         bot["name"], err, resp.get("message", ""))
         result["tr_ok"] = tr_ok
 
