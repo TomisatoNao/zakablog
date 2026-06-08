@@ -22,7 +22,6 @@ blog_images/
 
 # Claude Code
 .claude/
-CLAUDE.md
 
 # OS
 .DS_Store
