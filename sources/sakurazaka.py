@@ -1,6 +1,7 @@
 """樱坂46 博客抓取（HTML 列表页 + 详情页解析）。"""
 import re
 import logging
+from html import unescape
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 
@@ -65,7 +66,16 @@ def fetch_detail(url: str) -> tuple[list[str], str, str]:
             urljoin("https://sakurazaka46.com", img["src"])
             for img in body.find_all("img") if img.get("src")
         ]
-        body_text = body.get_text("\n").strip()
+        body_text_raw = str(body)
+        # <img> → 【图片N】占位符（按出现顺序编号）
+        _counter = [0]
+        def _img_placeholder(m):
+            _counter[0] += 1
+            return f"\n【图片{_counter[0]}】\n"
+        body_text = re.sub(r"<img[^>]*>", _img_placeholder, body_text_raw, flags=re.IGNORECASE)
+        body_text = re.sub(r"<br\s*/?>", "\n", body_text, flags=re.IGNORECASE)
+        body_text = re.sub(r"<[^>]+>", "", body_text)
+        body_text = unescape(body_text).strip()
         foot = soup.find("div", class_="blog-foot")
         date_str = ""
         if foot:

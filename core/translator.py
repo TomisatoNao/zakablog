@@ -1,4 +1,5 @@
 """Gemini API 日→中 翻译，多模型池 + RPM 冷却 + 自动降级。"""
+import re
 import time
 import logging
 import requests
@@ -10,7 +11,7 @@ API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 PROMPT = (
     "将以下日文博客翻译成简体中文，按中日参照格式逐段输出。要求：\n"
     "1. 保持原文的语气和风格，人名保留日文原文不翻译\n"
-    "2. 每个段落先输出日文原文，再输出中文译文，方便对照阅读\n"
+    "2. 按语义将博客内容划分为若干段落（参考空行但不强制），每个段落先日文原文后中文译文\n"
     "3. 格式严格如下：\n"
     "【原文】\n（该段的日文原文）\n【中文】\n（该段的中文翻译）\n\n"
     "4. 段落之间用空行分隔，不要添加任何额外解释或前言\n"
@@ -33,6 +34,9 @@ def translate(text: str) -> str:
     if not GEMINI_MODELS:
         log.warning("GEMINI_MODELS 为空，跳过翻译")
         return ""
+
+    # 规范化正文：过多连续空行压缩为最多 2 个空行（保留间距但不极端）
+    text = re.sub(r"\n{4,}", "\n\n\n", text).strip()
 
     models = _available_models()
     if not models:

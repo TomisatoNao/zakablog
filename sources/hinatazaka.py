@@ -1,5 +1,7 @@
 """日向坂46 博客抓取（HTML 列表页解析）。"""
+import re
 import logging
+from html import unescape
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 
@@ -53,10 +55,25 @@ def fetch_images(url: str) -> list[str]:
 
 
 def fetch_body(url: str) -> str:
-    """获取正文纯文本，用于翻译。"""
+    """获取正文纯文本，用于翻译。保留 <br> 数量 + 图片占位符。"""
     try:
         body = _get_article(url)
-        return body.get_text("\n").strip() if body else ""
+        if not body:
+            return ""
+        html_str = str(body)
+        # <img> → 【图片N】占位符（按出现顺序编号）
+        _counter = [0]
+        def _img_placeholder(m):
+            _counter[0] += 1
+            return f"\n【图片{_counter[0]}】\n"
+        text = re.sub(r"<img[^>]*>", _img_placeholder, html_str, flags=re.IGNORECASE)
+        # 每个 <br/> → 一个换行（保留原始数量）
+        text = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
+        # 去掉其余 HTML 标签
+        text = re.sub(r"<[^>]+>", "", text)
+        # 解码 HTML 实体（&amp; → & 等）
+        text = unescape(text)
+        return text.strip()
     except Exception as e:
         log.warning("日向坂正文抓取失败 (%s): %s", url, e)
         return ""

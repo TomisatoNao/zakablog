@@ -118,7 +118,7 @@ python tools/get_qq_openid.py
 
 | 平台 | 格式 | 中文段落 | 日文段落 |
 |------|------|----------|----------|
-| QQ Bot | Markdown（`msg_type: 2`） | **粗体** | *斜体* |
+| QQ Bot | Markdown（`msg_type: 2`） | **粗体** | *斜体*（段内去空行） |
 | Telegram | HTML（`ParseMode.HTML`） | `<b>粗体</b>` | `<i>斜体</i>` |
 
 两个平台在富文本推送失败时均自动回退为纯文本，保证消息可达。

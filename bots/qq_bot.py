@@ -105,7 +105,7 @@ def _send_image(token: str, openid: str, image_url: str,
 
 
 def _fmt_translation_qq(text: str) -> str:
-    """中日参照文本 → QQ Markdown：中文段落粗体、日文段落斜体，移除【中文】/【原文】标签。"""
+    """中日参照文本 → QQ Markdown：中文段落粗体、日文段落斜体，段内去空行 + * 转义。"""
     blocks = []
     current_type = None
     current_lines: list[str] = []
@@ -114,12 +114,18 @@ def _fmt_translation_qq(text: str) -> str:
         if line == '【中文】':
             if current_type and current_lines:
                 content = '\n'.join(current_lines).strip()
+                content = re.sub(r'\n{2,}', '\n', content)
+                content = content.replace('*', '＊')  # 避免正文 * 破坏 QQ markdown 斜体
+                content = re.sub(r'^#', '＃', content, flags=re.MULTILINE)  # 避免行首 # 变标题
                 blocks.append(f'**{content}**' if current_type == 'zh' else f'*{content}*')
             current_type = 'zh'
             current_lines = []
         elif line == '【原文】':
             if current_type and current_lines:
                 content = '\n'.join(current_lines).strip()
+                content = re.sub(r'\n{2,}', '\n', content)
+                content = content.replace('*', '＊')
+                content = re.sub(r'^#', '＃', content, flags=re.MULTILINE)
                 blocks.append(f'**{content}**' if current_type == 'zh' else f'*{content}*')
             current_type = 'ja'
             current_lines = []
@@ -128,9 +134,17 @@ def _fmt_translation_qq(text: str) -> str:
 
     if current_type and current_lines:
         content = '\n'.join(current_lines).strip()
+        content = re.sub(r'\n{2,}', '\n', content)
+        content = content.replace('*', '＊')
+        content = re.sub(r'^#', '＃', content, flags=re.MULTILINE)
         blocks.append(f'**{content}**' if current_type == 'zh' else f'*{content}*')
 
-    return '\n\n'.join(blocks)
+    # 原文+译文成对紧挨，对与对之间用零宽空格行分隔（QQ markdown 折叠连续空行）
+    result = []
+    for i in range(0, len(blocks), 2):
+        pair = blocks[i:i+2]
+        result.append('\n'.join(pair))
+    return '\n​\n'.join(result)
 
 
 def _push_to_single_bot(bot: dict, group_key: str, group: str,

@@ -27,7 +27,7 @@ def _retry_wait(exc: Exception) -> float:
 
 
 def _fmt_translation_tg(text: str) -> str:
-    """中日参照文本 → Telegram HTML：中文段落粗体、日文段落斜体，移除【中文】/【原文】标签。"""
+    """中日参照文本 → Telegram HTML：中文段落粗体、日文段落斜体，移除去【中文】/【原文】标签，段内去空行。"""
     blocks = []
     current_type = None
     current_lines: list[str] = []
@@ -35,13 +35,17 @@ def _fmt_translation_tg(text: str) -> str:
     for line in text.split('\n'):
         if line == '【中文】':
             if current_type and current_lines:
-                content = _html.escape('\n'.join(current_lines).strip())
+                content = '\n'.join(current_lines).strip()
+                content = re.sub(r'\n{2,}', '\n', content)  # 段内去空行
+                content = _html.escape(content)
                 blocks.append(f'<b>{content}</b>' if current_type == 'zh' else f'<i>{content}</i>')
             current_type = 'zh'
             current_lines = []
         elif line == '【原文】':
             if current_type and current_lines:
-                content = _html.escape('\n'.join(current_lines).strip())
+                content = '\n'.join(current_lines).strip()
+                content = re.sub(r'\n{2,}', '\n', content)
+                content = _html.escape(content)
                 blocks.append(f'<b>{content}</b>' if current_type == 'zh' else f'<i>{content}</i>')
             current_type = 'ja'
             current_lines = []
@@ -49,10 +53,17 @@ def _fmt_translation_tg(text: str) -> str:
             current_lines.append(line)
 
     if current_type and current_lines:
-        content = _html.escape('\n'.join(current_lines).strip())
+        content = '\n'.join(current_lines).strip()
+        content = re.sub(r'\n{2,}', '\n', content)
+        content = _html.escape(content)
         blocks.append(f'<b>{content}</b>' if current_type == 'zh' else f'<i>{content}</i>')
 
-    return '\n\n'.join(blocks)
+    # 原文+译文成对紧挨，对与对之间空一行
+    result = []
+    for i in range(0, len(blocks), 2):
+        pair = blocks[i:i+2]
+        result.append('\n'.join(pair))
+    return '\n\n'.join(result)
 
 
 async def _push_async(token: str, chat_id: str, group_name: str,
