@@ -104,8 +104,19 @@ def _send_image(token: str, openid: str, image_url: str,
     return False
 
 
+def _escape_qq_md(text: str) -> str:
+    """转义 QQ markdown 特殊字符，避免正文内容被误解析为格式标记。"""
+    text = text.replace('*', '＊')       # 斜体/粗体
+    text = text.replace('_', '＿')       # 下划线斜体/粗体
+    text = text.replace('`', '｀')       # 行内代码
+    text = re.sub(r'^#', '＃', text, flags=re.MULTILINE)   # 标题
+    text = re.sub(r'^> ', '＞ ', text, flags=re.MULTILINE)  # 块引用
+    text = re.sub(r'^- ', '－ ', text, flags=re.MULTILINE)  # 无序列表
+    return text
+
+
 def _fmt_translation_qq(text: str) -> str:
-    """中日参照文本 → QQ Markdown：中文段落粗体、日文段落斜体，段内去空行 + * 转义。"""
+    """中日参照文本 → QQ Markdown：中文段落粗体、日文段落斜体，段内去空行 + 转义。"""
     blocks = []
     current_type = None
     current_lines: list[str] = []
@@ -115,8 +126,7 @@ def _fmt_translation_qq(text: str) -> str:
             if current_type and current_lines:
                 content = '\n'.join(current_lines).strip()
                 content = re.sub(r'\n{2,}', '\n', content)
-                content = content.replace('*', '＊')  # 避免正文 * 破坏 QQ markdown 斜体
-                content = re.sub(r'^#', '＃', content, flags=re.MULTILINE)  # 避免行首 # 变标题
+                content = _escape_qq_md(content)
                 blocks.append(f'**{content}**' if current_type == 'zh' else f'*{content}*')
             current_type = 'zh'
             current_lines = []
@@ -124,8 +134,7 @@ def _fmt_translation_qq(text: str) -> str:
             if current_type and current_lines:
                 content = '\n'.join(current_lines).strip()
                 content = re.sub(r'\n{2,}', '\n', content)
-                content = content.replace('*', '＊')
-                content = re.sub(r'^#', '＃', content, flags=re.MULTILINE)
+                content = _escape_qq_md(content)
                 blocks.append(f'**{content}**' if current_type == 'zh' else f'*{content}*')
             current_type = 'ja'
             current_lines = []
@@ -135,8 +144,7 @@ def _fmt_translation_qq(text: str) -> str:
     if current_type and current_lines:
         content = '\n'.join(current_lines).strip()
         content = re.sub(r'\n{2,}', '\n', content)
-        content = content.replace('*', '＊')
-        content = re.sub(r'^#', '＃', content, flags=re.MULTILINE)
+        content = _escape_qq_md(content)
         blocks.append(f'**{content}**' if current_type == 'zh' else f'*{content}*')
 
     # 原文+译文成对紧挨，对与对之间用零宽空格行分隔（QQ markdown 折叠连续空行）
